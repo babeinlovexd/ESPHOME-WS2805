@@ -30,14 +30,13 @@ class WS2805LightOutput : public light::AddressableLight {
   light::LightTraits get_traits() override {
     auto traits = light::LightTraits();
     // Expose as an RGBWW light (RGB + Cold White + Warm White)
-    traits.set_supported_color_modes({light::ColorMode::RGB_COLD_WARM_WHITE});
+    if (this->color_interlock_) {
+      traits.set_supported_color_modes({light::ColorMode::RGB, light::ColorMode::COLD_WARM_WHITE});
+    } else {
+      traits.set_supported_color_modes({light::ColorMode::RGB_COLD_WARM_WHITE});
+    }
     traits.set_min_mireds(this->cold_white_temperature_);
     traits.set_max_mireds(this->warm_white_temperature_);
-
-    // Pass color_interlock trait to ESPHome
-    if (this->color_interlock_) {
-      traits.set_supports_color_interlock(true);
-    }
 
     return traits;
   }
