@@ -16,9 +16,9 @@ class WS2805LightOutput : public light::AddressableLight {
       : num_leds_(num_leds), pin_(pin) {}
 
   void setup() override {
-    // The datasheet implies R, G, B, W1, W2 byte order.
-    // NeoRgbwwFeature ensures exactly this mapping!
-    this->controller_ = new NeoPixelBus<NeoRgbwwFeature, NeoWs2805Method>(this->num_leds_, this->pin_);
+    // The hardware uses G, R, B, W1, W2 byte order.
+    // NeoGrbwwFeature ensures exactly this mapping!
+    this->controller_ = new NeoPixelBus<NeoGrbwwFeature, NeoWs2805Method>(this->num_leds_, this->pin_);
     this->controller_->Begin();
     this->effect_data_ = new uint8_t[this->num_leds_](); // initialize to 0
     this->controller_->Show();
@@ -70,7 +70,7 @@ class WS2805LightOutput : public light::AddressableLight {
     uint8_t *pixels = this->controller_->Pixels();
     if (pixels != nullptr) {
       for (int i = 0; i < this->size(); i++) {
-        // NeoRgbwwFeature byte order is: R, G, B, W1, W2
+        // NeoGrbwwFeature byte order is: G, R, B, W1, W2
         // Offset 3 is W1 (Warm White typically), Offset 4 is W2 (Cold White typically).
         pixels[i * 5 + 3] = ww; // W1
         pixels[i * 5 + 4] = cw; // W2
@@ -100,8 +100,8 @@ class WS2805LightOutput : public light::AddressableLight {
 
     uint8_t *base = this->controller_->Pixels() + 5ULL * index;
     // Map R, G, B to ESPColorView. Leave White as nullptr.
-    // NeoRgbwwFeature byte order is: R, G, B, W1, W2 -> offset 0=R, 1=G, 2=B
-    return light::ESPColorView(base + 0, base + 1, base + 2, nullptr, this->effect_data_ + index, &this->correction_);
+    // NeoGrbwwFeature byte order is: G, R, B, W1, W2 -> offset 0=G, 1=R, 2=B
+    return light::ESPColorView(base + 1, base + 0, base + 2, nullptr, this->effect_data_ + index, &this->correction_);
   }
 
   uint16_t num_leds_;
@@ -110,7 +110,7 @@ class WS2805LightOutput : public light::AddressableLight {
   float cold_white_temperature_{153};
   float warm_white_temperature_{500};
   bool color_interlock_{false};
-  NeoPixelBus<NeoRgbwwFeature, NeoWs2805Method> *controller_{nullptr};
+  NeoPixelBus<NeoGrbwwFeature, NeoWs2805Method> *controller_{nullptr};
 };
 
 }  // namespace ws2805
