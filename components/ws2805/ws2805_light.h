@@ -5,26 +5,43 @@
 #include "esphome/components/light/addressable_light.h"
 #include "esphome/components/light/light_traits.h"
 #include "esphome/components/light/light_state.h"
-#include <NeoPixelBus.h>
+
+#include <driver/gpio.h>
+#include <esp_err.h>
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include <driver/rmt_tx.h>
+#else
+#include <driver/rmt.h>
+#endif
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include <esp_clk_tree.h>
+#endif
 
 namespace esphome {
 namespace ws2805 {
+
+struct LedParams {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  rmt_symbol_word_t bit0;
+  rmt_symbol_word_t bit1;
+  rmt_symbol_word_t reset;
+#else
+  rmt_item32_t bit0;
+  rmt_item32_t bit1;
+  rmt_item32_t reset;
+#endif
+};
 
 class WS2805LightOutput : public light::AddressableLight {
  public:
   WS2805LightOutput(uint16_t num_leds, uint8_t pin)
       : num_leds_(num_leds), pin_(pin) {}
 
-  void setup() override {
-    // The hardware uses G, R, B, W1, W2 byte order.
-    // NeoGrbwwFeature ensures exactly this mapping!
-    this->controller_ = new NeoPixelBus<NeoGrbwwFeature, NeoWs2805Method>(this->num_leds_, this->pin_);
-    this->controller_->Begin();
-    this->effect_data_ = new uint8_t[this->num_leds_](); // initialize to 0
-    this->controller_->Show();
-  }
+  void setup() override;
+  void write_state(light::LightState *state) override;
 
-  // CRITICAL: Ensure setup is called early so this->controller_ is allocated before state restore calls write_state!
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
   light::LightTraits get_traits() override {
@@ -44,42 +61,11 @@ class WS2805LightOutput : public light::AddressableLight {
   int32_t size() const override { return this->num_leds_; }
 
   void clear_effect_data() override {
-    for (int i = 0; i < this->size(); i++) {
-      this->effect_data_[i] = 0;
-    }
-  }
-
-  void write_state(light::LightState *state) override {
-    if (this->controller_ == nullptr) return; // Failsafe
-
-    float red, green, blue, cwhite, wwhite;
-    // Get RGBWW values factoring in brightness. We use the global state for the CCT channels.
-    state->current_values_as_rgbww(&red, &green, &blue, &cwhite, &wwhite, true);
-
-    uint8_t cw = cwhite * 255;
-    uint8_t ww = wwhite * 255;
-
-    // VERY IMPORTANT: Call the base class write_state!
-    // If the light is NOT running an effect, AddressableLight doesn't implement write_state itself,
-    // but the underlying LightOutput interface expects us to push to hardware.
-    // Wait, AddressableLight DOES NOT implement write_state()! It's pure virtual in LightOutput!
-    // But we need to make sure the transformer has applied the color to our ESPColorView mappings!
-    // The transformer applies to `(*this)[i]` before calling `write_state()` on the output.
-    // So by the time `write_state` is called, R, G, B in the NeoPixelBus buffer are already updated!
-
-    uint8_t *pixels = this->controller_->Pixels();
-    if (pixels != nullptr) {
+    if (this->effect_data_) {
       for (int i = 0; i < this->size(); i++) {
-        // NeoGrbwwFeature byte order is: G, R, B, W1, W2
-        // Offset 3 is W1 (Warm White typically), Offset 4 is W2 (Cold White typically).
-        pixels[i * 5 + 3] = ww; // W1
-        pixels[i * 5 + 4] = cw; // W2
+        this->effect_data_[i] = 0;
       }
     }
-
-    this->mark_shown_();
-    this->controller_->Dirty();
-    this->controller_->Show();
   }
 
   void set_cold_white_temperature(float cold_white_temperature) {
@@ -91,16 +77,23 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_color_interlock(bool color_interlock) { this->color_interlock_ = color_interlock; }
 
  protected:
+  static uint32_t ws2805_rmt_resolution_hz();
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+  static size_t ws2805_encoder_callback(const void *data, size_t size, size_t symbols_written, size_t symbols_free,
+                                             rmt_symbol_word_t *symbols, bool *done, void *arg);
+#endif
+
   light::ESPColorView get_view_internal(int32_t index) const override {
-    if (this->controller_ == nullptr) {
-      // Failsafe if accessed before setup, though ESPHome shouldn't do this anymore thanks to get_setup_priority
+    if (this->buf_ == nullptr) {
       static uint8_t dummy[5] = {0};
       return light::ESPColorView(&dummy[0], &dummy[1], &dummy[2], nullptr, &dummy[4], &this->correction_);
     }
 
-    uint8_t *base = this->controller_->Pixels() + 5ULL * index;
+    // Hardware byte order is GRBWW (5 bytes per LED)
+    uint8_t *base = this->buf_ + 5 * index;
     // Map R, G, B to ESPColorView. Leave White as nullptr.
-    // NeoGrbwwFeature byte order is: G, R, B, W1, W2 -> offset 0=G, 1=R, 2=B
+    // ESPColorView wants R, G, B, W, cwhite
+    // offset 0=G, 1=R, 2=B, 3=WW, 4=CW
     return light::ESPColorView(base + 1, base + 0, base + 2, nullptr, this->effect_data_ + index, &this->correction_);
   }
 
@@ -110,7 +103,22 @@ class WS2805LightOutput : public light::AddressableLight {
   float cold_white_temperature_{153};
   float warm_white_temperature_{500};
   bool color_interlock_{false};
-  NeoPixelBus<NeoGrbwwFeature, NeoWs2805Method> *controller_{nullptr};
+
+  uint8_t *buf_{nullptr};
+  LedParams params_;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  rmt_channel_handle_t channel_{nullptr};
+  rmt_encoder_handle_t encoder_{nullptr};
+#else
+  rmt_channel_t channel_{RMT_CHANNEL_MAX}; // Need dynamic allocation in old ESP-IDF
+#endif
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+  uint8_t *rmt_buf_{nullptr};
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  rmt_symbol_word_t *rmt_buf_{nullptr};
+#else
+  rmt_item32_t *rmt_buf_{nullptr};
+#endif
 };
 
 }  // namespace ws2805

@@ -1,0 +1,26 @@
+esphome:
+  name: test-ws2805
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+light:
+  - platform: ws2805
+    id: ws2805_1
+    pin: GPIO4
+    num_leds: 10
+  - platform: ws2805
+    id: ws2805_2
+    pin: GPIO5
+    num_leds: 10
+  - platform: ws2805
+    id: ws2805_3
+    pin: GPIO6
+    num_leds: 10
