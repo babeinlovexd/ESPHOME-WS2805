@@ -32,6 +32,10 @@ light:
     name: "My WS2805 Strip - Zone 1"
     pin: GPIO4 # The GPIO pin your data line is connected to
     num_leds: 100 # Total number of LEDs on the strip
+    color_interlock: false
+    cold_white_color_temperature: 153 mireds
+    warm_white_color_temperature: 500 mireds
+    gamma_correct: 2.2
     effects:
       - addressable_rainbow:
 
@@ -47,7 +51,17 @@ light:
     pin: GPIO6
     num_leds: 100
 ```
+## Configuration Variables
 
+You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, `effects`), plus the following WS2805-specific arguments:
+
+* **`pin`** *(Required)*: The GPIO pin your data line is connected to.
+* **`num_leds`** *(Required)*: Total number of LEDs on the strip.
+* **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
+* **`cold_white_color_temperature`** *(Optional)*: The color temperature of your cold white LEDs in mireds. Default value is `153 mireds` (~6500K).
+* **`warm_white_color_temperature`** *(Optional)*: The color temperature of your warm white LEDs in mireds. Default value is `500 mireds` (~2000K).
+
+---
 ## Features
 - **Addressable RGB Effects:** Since the component inherits from `AddressableLight`, you can add and use all Addressable light effects such as `addressable_rainbow`, `addressable_scan`, etc.
 - **Global CCT Control:** The Warm White and Cold White channels are globally set across the entire strip according to your CCT sliders in Home Assistant. This is exactly how tools like WLED manage RGBCCT setups.
@@ -88,6 +102,10 @@ light:
     name: "Mein WS2805 Streifen - Zone 1"
     pin: GPIO4 # Der GPIO-Pin, an den deine Datenleitung angeschlossen ist
     num_leds: 100 # Gesamtzahl der LEDs auf dem Streifen
+    color_interlock: false
+    cold_white_color_temperature: 153 mireds
+    warm_white_color_temperature: 500 mireds
+    gamma_correct: 2.2
     effects:
       - addressable_rainbow:
 
@@ -103,7 +121,15 @@ light:
     pin: GPIO6
     num_leds: 100
 ```
+## Konfigurations-Variablen
 
+Du kannst alle Standard-ESPHome-Variablen (wie `name`, `id`, `gamma_correct`, `effects`) nutzen, zuzüglich folgender WS2805-spezifischer Argumente:
+
+* **`pin`** *(Erforderlich)*: Der GPIO-Pin, an den deine Datenleitung angeschlossen ist.
+* **`num_leds`** *(Erforderlich)*: Gesamtzahl der LEDs auf dem Streifen.
+* **`color_interlock`** *(Optional, Boolean)*: Verhindert, dass die weißen LEDs und die RGB-LEDs gleichzeitig mit voller Kraft leuchten (nützlich für das Netzteil-Management oder thermische Limits). Standard ist `false`.
+* **`cold_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Kaltweiß-LEDs in Mireds. Standardwert ist `153 mireds` (~6500K).
+* **`warm_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Warmweiß-LEDs in Mireds. Standardwert ist `500 mireds` (~2000K).
 ## Funktionen
 - **Adressierbare RGB-Effekte:** Da die Komponente von `AddressableLight` erbt, kannst du alle adressierbaren Lichteffekte wie `addressable_rainbow`, `addressable_scan` usw. nutzen.
 - **Globale CCT-Steuerung:** Die Warmweiß- und Kaltweiß-Kanäle werden für den gesamten Streifen anhand der CCT-Regler in Home Assistant global gesteuert (Genau so, wie WLED RGBCCT-Setups verwaltet).
