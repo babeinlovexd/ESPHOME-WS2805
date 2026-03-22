@@ -14,7 +14,7 @@ uint32_t WS2805LightOutput::ws2805_rmt_resolution_hz() {
   esp_clk_tree_src_get_freq_hz((soc_module_clk_t) RMT_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &freq);
   return freq;
 #else
-  return 80000000; // APB Clock default on older ESP-IDF
+  return 10000000; // 10MHz resolution (80MHz APB / 8 clk_div)
 #endif
 }
 
@@ -73,8 +73,10 @@ void WS2805LightOutput::setup() {
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   this->rmt_buf_ = new uint8_t[buffer_size];
-#else
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   this->rmt_buf_ = new rmt_symbol_word_t[buffer_size * 8 + 1];
+#else
+  this->rmt_buf_ = new rmt_item32_t[buffer_size * 8 + 1];
 #endif
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -193,7 +195,17 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     this->buf_[i * 5 + 4] = cw; // W2
   }
 
+  // Workaround to ensure mark_shown_() doesn't unrequest the power supply if only CCT channels are active
+  // Since ESPColorView in get_view_internal() has `white` mapped to nullptr, mark_shown_() will only see RGB values.
+  uint8_t temp_g = this->buf_[0];
+  if (cw > 0 || ww > 0) {
+    this->buf_[0] = 1; // Temporarily trick mark_shown_() into seeing a non-zero pixel
+  }
+
   this->mark_shown_();
+
+  // Restore original pixel color
+  this->buf_[0] = temp_g;
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   esp_err_t error = rmt_tx_wait_all_done(this->channel_, 1000);
@@ -215,7 +227,11 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   size_t size = 0;
   size_t len = 0;
   uint8_t *psrc = this->buf_;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   rmt_symbol_word_t *pdest = this->rmt_buf_;
+#else
+  rmt_item32_t *pdest = this->rmt_buf_;
+#endif
   while (size < buffer_size) {
     uint8_t b = *psrc;
     for (int i = 0; i < 8; i++) {

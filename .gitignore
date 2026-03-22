@@ -1,1 +1,5 @@
+venv/
+.DS_Store
 .esphome/
+__pycache__/
+*.pyc
