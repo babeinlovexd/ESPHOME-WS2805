@@ -46,7 +46,7 @@ class WS2805LightOutput : public light::AddressableLight {
     this->channel_ = RMT_CHANNEL_MAX;
 #endif
   }
-  ~WS2805LightOutput() override;
+  ~WS2805LightOutput();
 
   void setup() override;
   void write_state(light::LightState *state) override;
