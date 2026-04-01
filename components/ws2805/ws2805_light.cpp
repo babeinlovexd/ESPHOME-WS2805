@@ -187,7 +187,8 @@ void WS2805LightOutput::setup() {
   }
 #endif
 
-  float ratio = (float) ws2805_rmt_resolution_hz() / 1e09f;
+  float ratio;
+  ratio = (float) ws2805_rmt_resolution_hz() / 1e09f;
 
   // 0-bit: 300ns high, 900ns low
   this->params_.bit0.duration0 = (uint32_t) (ratio * 300);
