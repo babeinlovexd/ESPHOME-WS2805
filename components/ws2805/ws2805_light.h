@@ -6,6 +6,7 @@
 #include "esphome/components/light/light_traits.h"
 #include "esphome/components/light/light_state.h"
 
+#include <cstring>
 #include <driver/gpio.h>
 #include <esp_err.h>
 #include <esp_idf_version.h>
@@ -62,9 +63,7 @@ class WS2805LightOutput : public light::AddressableLight {
 
   void clear_effect_data() override {
     if (this->effect_data_) {
-      for (int i = 0; i < this->size(); i++) {
-        this->effect_data_[i] = 0;
-      }
+      memset(this->effect_data_, 0, this->size());
     }
   }
 
