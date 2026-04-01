@@ -53,22 +53,49 @@ size_t IRAM_ATTR HOT WS2805LightOutput::ws2805_encoder_callback(const void *data
 }
 #endif
 
+WS2805LightOutput::~WS2805LightOutput() {
+  this->cleanup_();
+}
+
+void WS2805LightOutput::cleanup_() {
+  delete[] this->buf_;
+  this->buf_ = nullptr;
+  delete[] this->effect_data_;
+  this->effect_data_ = nullptr;
+  delete[] this->rmt_buf_;
+  this->rmt_buf_ = nullptr;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  if (this->encoder_) {
+    rmt_del_encoder(this->encoder_);
+    this->encoder_ = nullptr;
+  }
+  if (this->channel_) {
+    rmt_disable(this->channel_);
+    rmt_del_channel(this->channel_);
+    this->channel_ = nullptr;
+  }
+#else
+  if (this->channel_ < RMT_CHANNEL_MAX) {
+    rmt_driver_uninstall(this->channel_);
+    this->channel_ = RMT_CHANNEL_MAX;
+  }
+#endif
+}
+
 void WS2805LightOutput::setup() {
   size_t buffer_size = this->num_leds_ * 5;
 
   this->buf_ = new uint8_t[buffer_size];
   if (this->buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate LED buffer!");
-    this->mark_failed();
-    return;
+    goto fail;
   }
   memset(this->buf_, 0, buffer_size);
 
   this->effect_data_ = new uint8_t[this->num_leds_];
   if (this->effect_data_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate effect data!");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
@@ -78,6 +105,10 @@ void WS2805LightOutput::setup() {
 #else
   this->rmt_buf_ = new rmt_item32_t[buffer_size * 8 + 1];
 #endif
+  if (this->rmt_buf_ == nullptr) {
+    ESP_LOGE(TAG, "Cannot allocate RMT buffer!");
+    goto fail;
+  }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   rmt_tx_channel_config_t channel_cfg;
@@ -97,8 +128,7 @@ void WS2805LightOutput::setup() {
 
   if (rmt_new_tx_channel(&channel_cfg, &this->channel_) != ESP_OK) {
     ESP_LOGE(TAG, "Channel creation failed");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
@@ -109,23 +139,20 @@ void WS2805LightOutput::setup() {
   encoder_cfg.min_chunk_size = RMT_SYMBOLS_PER_BYTE;
   if (rmt_new_simple_encoder(&encoder_cfg, &this->encoder_) != ESP_OK) {
     ESP_LOGE(TAG, "Encoder creation failed");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 #else
   rmt_copy_encoder_config_t encoder_cfg;
   memset(&encoder_cfg, 0, sizeof(encoder_cfg));
   if (rmt_new_copy_encoder(&encoder_cfg, &this->encoder_) != ESP_OK) {
     ESP_LOGE(TAG, "Encoder creation failed");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 #endif
 
   if (rmt_enable(this->channel_) != ESP_OK) {
     ESP_LOGE(TAG, "Enabling channel failed");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 
 #else
@@ -156,8 +183,7 @@ void WS2805LightOutput::setup() {
 
   if (this->channel_ == RMT_CHANNEL_MAX) {
     ESP_LOGE(TAG, "Failed to find free RMT channel");
-    this->mark_failed();
-    return;
+    goto fail;
   }
 #endif
 
@@ -178,6 +204,12 @@ void WS2805LightOutput::setup() {
   this->params_.reset.level0 = 1;
   this->params_.reset.duration1 = (uint32_t) (ratio * 300000);
   this->params_.reset.level1 = 0;
+
+  return;
+
+fail:
+  this->mark_failed();
+  this->cleanup_();
 }
 
 void WS2805LightOutput::write_state(light::LightState *state) {

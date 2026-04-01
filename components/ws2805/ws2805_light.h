@@ -37,7 +37,15 @@ struct LedParams {
 class WS2805LightOutput : public light::AddressableLight {
  public:
   WS2805LightOutput(uint16_t num_leds, uint8_t pin)
-      : num_leds_(num_leds), pin_(pin) {}
+      : num_leds_(num_leds), pin_(pin), buf_(nullptr), effect_data_(nullptr), rmt_buf_(nullptr) {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    this->channel_ = nullptr;
+    this->encoder_ = nullptr;
+#else
+    this->channel_ = RMT_CHANNEL_MAX;
+#endif
+  }
+  ~WS2805LightOutput() override;
 
   void setup() override;
   void write_state(light::LightState *state) override;
@@ -77,6 +85,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_color_interlock(bool color_interlock) { this->color_interlock_ = color_interlock; }
 
  protected:
+  void cleanup_();
   static uint32_t ws2805_rmt_resolution_hz();
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   static size_t ws2805_encoder_callback(const void *data, size_t size, size_t symbols_written, size_t symbols_free,
