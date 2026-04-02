@@ -26,6 +26,7 @@ CONFIG_SCHEMA = light.ADDRESSABLE_LIGHT_SCHEMA.extend({
     cv.Optional(CONF_COLOR_INTERLOCK, default=False): cv.boolean,
     cv.Optional(CONF_COLD_WHITE_COLOR_TEMPERATURE, default="153 mireds"): cv.color_temperature,
     cv.Optional(CONF_WARM_WHITE_COLOR_TEMPERATURE, default="500 mireds"): cv.color_temperature,
+    cv.Optional("max_refresh_rate", default="4ms"): cv.positive_time_period_microseconds,
 }).extend(cv.COMPONENT_SCHEMA)
 
 async def to_code(config):
@@ -38,3 +39,5 @@ async def to_code(config):
     cg.add(var.set_color_interlock(config[CONF_COLOR_INTERLOCK]))
     cg.add(var.set_cold_white_temperature(config[CONF_COLD_WHITE_COLOR_TEMPERATURE]))
     cg.add(var.set_warm_white_temperature(config[CONF_WARM_WHITE_COLOR_TEMPERATURE]))
+    if "max_refresh_rate" in config:
+        cg.add(var.set_max_refresh_rate(config["max_refresh_rate"]))

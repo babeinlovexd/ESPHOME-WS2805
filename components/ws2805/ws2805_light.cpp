@@ -1,6 +1,7 @@
 #include "ws2805_light.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include <esp_heap_caps.h>
 
 namespace esphome {
 namespace ws2805 {
@@ -58,11 +59,11 @@ WS2805LightOutput::~WS2805LightOutput() {
 }
 
 void WS2805LightOutput::cleanup_() {
-  delete[] this->buf_;
+  if (this->buf_) heap_caps_free(this->buf_);
   this->buf_ = nullptr;
-  delete[] this->effect_data_;
+  if (this->effect_data_) heap_caps_free(this->effect_data_);
   this->effect_data_ = nullptr;
-  delete[] this->rmt_buf_;
+  if (this->rmt_buf_) heap_caps_free(this->rmt_buf_);
   this->rmt_buf_ = nullptr;
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   if (this->encoder_) {
@@ -85,25 +86,25 @@ void WS2805LightOutput::cleanup_() {
 void WS2805LightOutput::setup() {
   size_t buffer_size = this->num_leds_ * 5;
 
-  this->buf_ = new uint8_t[buffer_size];
+  this->buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (this->buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate LED buffer!");
     goto fail;
   }
   memset(this->buf_, 0, buffer_size);
 
-  this->effect_data_ = new uint8_t[this->num_leds_];
+  this->effect_data_ = (uint8_t *)heap_caps_malloc(this->num_leds_, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (this->effect_data_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate effect data!");
     goto fail;
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  this->rmt_buf_ = new uint8_t[buffer_size];
+  this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  this->rmt_buf_ = new rmt_symbol_word_t[buffer_size * 8 + 1];
+  this->rmt_buf_ = (rmt_symbol_word_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #else
-  this->rmt_buf_ = new rmt_item32_t[buffer_size * 8 + 1];
+  this->rmt_buf_ = (rmt_item32_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_item32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #endif
   if (this->rmt_buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate RMT buffer!");
@@ -216,6 +217,13 @@ fail:
 void WS2805LightOutput::write_state(light::LightState *state) {
   if (this->buf_ == nullptr) return;
 
+  uint32_t now = micros();
+  if (this->max_refresh_rate_ != 0 && (now - this->last_refresh_) < this->max_refresh_rate_) {
+    this->schedule_show();
+    return;
+  }
+  this->last_refresh_ = now;
+
   float red, green, blue, cwhite, wwhite;
   state->current_values_as_rgbww(&red, &green, &blue, &cwhite, &wwhite, true);
 
@@ -250,8 +258,6 @@ void WS2805LightOutput::write_state(light::LightState *state) {
 #else
   rmt_wait_tx_done(this->channel_, 1000);
 #endif
-  delayMicroseconds(50);
-
   size_t buffer_size = this->num_leds_ * 5;
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)

@@ -82,6 +82,7 @@ class WS2805LightOutput : public light::AddressableLight {
     this->warm_white_temperature_ = warm_white_temperature;
   }
   void set_color_interlock(bool color_interlock) { this->color_interlock_ = color_interlock; }
+  void set_max_refresh_rate(uint32_t interval_us) { this->max_refresh_rate_ = interval_us; }
 
  protected:
   void cleanup_();
@@ -108,6 +109,8 @@ class WS2805LightOutput : public light::AddressableLight {
   uint16_t num_leds_;
   uint8_t pin_;
   uint8_t *effect_data_{nullptr};
+  uint32_t max_refresh_rate_{4000};
+  uint32_t last_refresh_{0};
   float cold_white_temperature_{153};
   float warm_white_temperature_{500};
   bool color_interlock_{false};
