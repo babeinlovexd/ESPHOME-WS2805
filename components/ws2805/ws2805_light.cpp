@@ -86,7 +86,7 @@ void WS2805LightOutput::cleanup_() {
 void WS2805LightOutput::setup() {
   size_t buffer_size = this->num_leds_ * 5;
 
-  this->buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+  this->buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (this->buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate LED buffer!");
     goto fail;
@@ -100,11 +100,11 @@ void WS2805LightOutput::setup() {
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+  this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  this->rmt_buf_ = (rmt_symbol_word_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+  this->rmt_buf_ = (rmt_symbol_word_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #else
-  this->rmt_buf_ = (rmt_item32_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_item32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+  this->rmt_buf_ = (rmt_item32_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_item32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #endif
   if (this->rmt_buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate RMT buffer!");
@@ -194,6 +194,8 @@ void WS2805LightOutput::setup() {
 
   float ratio;
   ratio = (float) ws2805_rmt_resolution_hz() / 1e09f;
+
+  ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz (Ratio: %f)", ws2805_rmt_resolution_hz(), ratio);
 
   // 0-bit: 400ns high, 850ns low
   this->params_.bit0.duration0 = (uint32_t) (ratio * 400);
