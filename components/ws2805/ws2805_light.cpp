@@ -245,7 +245,8 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   uint8_t cw = cwhite * 255;
   uint8_t ww = wwhite * 255;
 
-  for (int i = 0; i < this->size(); i++) {
+  int n = this->size();
+  for (int i = 0; i < n; i++) {
     this->buf_[i * 5 + 3] = ww;
     this->buf_[i * 5 + 4] = cw;
 
