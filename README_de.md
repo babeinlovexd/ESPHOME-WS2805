@@ -9,7 +9,7 @@
 </div>
 <br>
 
-🌍 **[Read this in English](README_en.md)**
+🌍 **[Read this in English](README.md)**
 
 Dies ist eine externe Komponente (External Component) für ESPHome, die Unterstützung für **WS2805** 5-Kanal (RGB + Warmweiß + Kaltweiß) LED-Streifen bietet.
 
