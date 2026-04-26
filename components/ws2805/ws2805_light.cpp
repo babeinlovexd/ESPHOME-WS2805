@@ -259,7 +259,6 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   uint8_t temp_g = this->buf_[0];
   if (cw > 0 || ww > 0) {
     this->buf_[0] = 1;
-    this->buf_[0] = 1;
   }
 
   this->mark_shown_();
