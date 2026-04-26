@@ -1,4 +1,4 @@
-# Example configuration for esph-ws2805
+# Example configuration for ESPHOME-WS2805
 esphome:
   name: ws2805-example
 
@@ -11,7 +11,7 @@ esp32:
 external_components:
   - source:
       type: git
-      url: https://github.com/babeinlovexd/esph-ws2805
+      url: https://github.com/babeinlovexd/ESPHOME-WS2805
       ref: main
     components: [ ws2805 ]
 
