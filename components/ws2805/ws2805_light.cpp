@@ -98,6 +98,7 @@ void WS2805LightOutput::setup() {
     ESP_LOGE(TAG, "Cannot allocate effect data!");
     goto fail;
   }
+  memset(this->effect_data_, 0, this->num_leds_);
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
