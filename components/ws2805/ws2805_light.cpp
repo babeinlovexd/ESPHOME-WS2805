@@ -10,6 +10,19 @@ namespace ws2805 {
 static const char *const TAG = "ws2805";
 static const size_t RMT_SYMBOLS_PER_BYTE = 8;
 
+uint8_t WS2805LightOutput::calculate_dither_(float base, float &error) {
+  float desired = base + error;
+  uint8_t val;
+  if (desired >= 255.0f) val = 255;
+  else if (desired <= 0.0f) val = 0;
+  else val = static_cast<uint8_t>(std::round(desired));
+
+  if (base <= 0.0f || base >= 255.0f) error = 0.0f;
+  else error = desired - static_cast<float>(val);
+
+  return val;
+}
+
 uint32_t WS2805LightOutput::ws2805_rmt_resolution_hz() {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   uint32_t freq;
@@ -225,12 +238,12 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     this->schedule_show();
     return;
   }
-  // Delta-Time (dt) in Sekunden für framerate-unabhängiges Fading berechnen
+
   float dt = (now - this->last_refresh_) / 1000000.0f;
   this->last_refresh_ = now;
-  if (dt > 0.5f) dt = 0.0f; // Verhindert extreme Sprünge, falls der ESP-Loop hing
+  if (dt > 0.5f) dt = 0.0f;
 
-  // ZIELWERTE (remote_values) lesen, NICHT die eingefrorenen current_values
+
   float target_r, target_g, target_b, target_cw, target_ww;
   state->remote_values.as_rgbww(&target_r, &target_g, &target_b, &target_cw, &target_ww, true);
 
@@ -243,18 +256,18 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     if (color_mode == light::ColorMode::COLD_WARM_WHITE) {
       clear_rgb = true;
     } else if (color_mode == light::ColorMode::RGB) {
-      target_cw = 0.0f; // Zielwerte auf 0 zwingen, damit sie weich ausfaden
+      target_cw = 0.0f;
       target_ww = 0.0f;
     }
   }
 
-  // --- MANUELLE, LINEARE TRANSITIONS-LOGIK FÜR CW/WW ---
-  // 1. Neue Zielwerte erkennen und Schritte für exakte Dauer berechnen
+
+
   if (this->target_cw_internal_ != target_cw || this->target_ww_internal_ != target_ww) {
     this->target_cw_internal_ = target_cw;
     this->target_ww_internal_ = target_ww;
 
-    // NEU: Eigener Log-Auswurf für die exakten CW und WW Hardware-Werte in Prozent
+
     ESP_LOGD(TAG, "White Channel Hardware Targets -> CW: %.1f%%, WW: %.1f%%", target_cw * 100.0f, target_ww * 100.0f);
 
     if (this->transition_speed_ <= 0.0f) {
@@ -263,16 +276,16 @@ void WS2805LightOutput::write_state(light::LightState *state) {
       this->step_cw_ = 0.0f;
       this->step_ww_ = 0.0f;
     } else {
-      // transition_speed_ definiert jetzt die exakte Dauer in Sekunden
+
       this->step_cw_ = (target_cw - this->current_cw_) / this->transition_speed_;
       this->step_ww_ = (target_ww - this->current_ww_) / this->transition_speed_;
     }
   }
 
-  // 2. CW strikt linear faden
+
   if (this->current_cw_ != this->target_cw_internal_) {
     float move_cw = this->step_cw_ * dt;
-    // Prüfen, ob wir das Ziel in diesem Frame überschreiten würden
+
     if ((this->step_cw_ > 0 && this->current_cw_ + move_cw >= this->target_cw_internal_) ||
         (this->step_cw_ < 0 && this->current_cw_ + move_cw <= this->target_cw_internal_)) {
       this->current_cw_ = this->target_cw_internal_;
@@ -281,7 +294,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     }
   }
 
-  // 3. WW strikt linear faden
+
   if (this->current_ww_ != this->target_ww_internal_) {
     float move_ww = this->step_ww_ * dt;
     if ((this->step_ww_ > 0 && this->current_ww_ + move_ww >= this->target_ww_internal_) ||
@@ -292,34 +305,19 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     }
   }
 
-  // Prüfen, ob wir uns noch in einem Fade befinden
+
   bool is_fading = (std::abs(this->current_cw_ - target_cw) > 0.001f || std::abs(this->current_ww_ - target_ww) > 0.001f);
 
-  // --- BERECHNUNG DER AUSGABEWERTE ---
+
   float base_cw = this->current_cw_ * 255.0f;
   float base_ww = this->current_ww_ * 255.0f;
   uint8_t cw, ww;
 
   if (this->dithering_ && is_fading) {
-    // Dithering-Logik für Kaltweiß
-    float desired_cw = base_cw + this->error_cw_;
-    if (desired_cw >= 255.0f) cw = 255;
-    else if (desired_cw <= 0.0f) cw = 0;
-    else cw = static_cast<uint8_t>(std::round(desired_cw));
-
-    if (base_cw <= 0.0f || base_cw >= 255.0f) this->error_cw_ = 0.0f;
-    else this->error_cw_ = desired_cw - static_cast<float>(cw);
-
-    // Dithering-Logik für Warmweiß
-    float desired_ww = base_ww + this->error_ww_;
-    if (desired_ww >= 255.0f) ww = 255;
-    else if (desired_ww <= 0.0f) ww = 0;
-    else ww = static_cast<uint8_t>(std::round(desired_ww));
-
-    if (base_ww <= 0.0f || base_ww >= 255.0f) this->error_ww_ = 0.0f;
-    else this->error_ww_ = desired_ww - static_cast<float>(ww);
+    cw = this->calculate_dither_(base_cw, this->error_cw_);
+    ww = this->calculate_dither_(base_ww, this->error_ww_);
   } else {
-    // Normaler Modus ohne Dithering
+
     cw = static_cast<uint8_t>(std::round(base_cw));
     ww = static_cast<uint8_t>(std::round(base_ww));
     this->error_cw_ = 0.0f;
@@ -411,7 +409,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
 #endif
   this->status_clear_warning();
 
-  // Render-Loop künstlich wachhalten, solange Fade läuft
+
   if (is_fading) {
     this->schedule_show();
   }
