@@ -351,7 +351,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
 
   this->buf_[0] = temp_g;
 
-  int timeout_ms = (this->num_leds_ * 50) / 1000 + 50;
+  int timeout_ms = (static_cast<uint32_t>(this->num_leds_) * 50) / 1000 + 50;
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   esp_err_t error = rmt_tx_wait_all_done(this->channel_, timeout_ms);
