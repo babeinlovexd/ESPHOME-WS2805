@@ -14,6 +14,14 @@ from esphome.const import (
     CONF_NUMBER
 )
 
+CONF_CHANNEL_ORDER = "channel_order"
+CHANNEL_ORDERS = {
+    "RGBWWCW": (0, 1, 2, 3, 4),
+    "RGBCWWW": (0, 1, 2, 4, 3),
+    "GRBWWCW": (1, 0, 2, 3, 4),
+    "GRBCWWW": (1, 0, 2, 4, 3),
+}
+
 CODEOWNERS = ["@BabeinlovexD"]
 DEPENDENCIES = ["esp32"]
 
@@ -48,6 +56,7 @@ CONFIG_SCHEMA = cv.All(
     cv.GenerateID(CONF_OUTPUT_ID): cv.declare_id(WS2805LightOutput),
     cv.Required(CONF_PIN): pins.internal_gpio_output_pin_schema,
     cv.Required(CONF_NUM_LEDS): cv.positive_int,
+    cv.Optional(CONF_CHANNEL_ORDER, default="GRBWWCW"): cv.one_of(*CHANNEL_ORDERS, upper=True),
     cv.Optional(CONF_COLOR_INTERLOCK, default=False): cv.boolean,
     cv.Optional(CONF_COLD_WHITE_COLOR_TEMPERATURE, default="153 mireds"): cv.color_temperature,
     cv.Optional(CONF_WARM_WHITE_COLOR_TEMPERATURE, default="500 mireds"): cv.color_temperature,
@@ -67,6 +76,10 @@ async def to_code(config):
     cg.add(var.set_color_interlock(config[CONF_COLOR_INTERLOCK]))
     cg.add(var.set_cold_white_temperature(config[CONF_COLD_WHITE_COLOR_TEMPERATURE]))
     cg.add(var.set_warm_white_temperature(config[CONF_WARM_WHITE_COLOR_TEMPERATURE]))
+
+    channel_order = CHANNEL_ORDERS[config[CONF_CHANNEL_ORDER]]
+    cg.add(var.set_channel_order(*channel_order))
+
     if "max_refresh_rate" in config:
         cg.add(var.set_max_refresh_rate(config["max_refresh_rate"]))
     if "cct_transition_speed" in config:
