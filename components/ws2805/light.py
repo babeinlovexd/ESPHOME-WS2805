@@ -15,7 +15,6 @@ from esphome.const import (
 )
 
 CONF_CHANNEL_ORDER = "channel_order"
-CONF_CONSTANT_BRIGHTNESS = "constant_brightness"
 CHANNEL_ORDERS = {
     "RGBWWCW": (0, 1, 2, 3, 4),
     "RGBCWWW": (0, 1, 2, 4, 3),
@@ -81,8 +80,6 @@ async def to_code(config):
 
     channel_order = CHANNEL_ORDERS[config[CONF_CHANNEL_ORDER]]
     cg.add(var.set_channel_order(*channel_order))
-
-    cg.add(var.set_constant_brightness(config[CONF_CONSTANT_BRIGHTNESS]))
 
     if "max_refresh_rate" in config:
         cg.add(var.set_max_refresh_rate(config["max_refresh_rate"]))

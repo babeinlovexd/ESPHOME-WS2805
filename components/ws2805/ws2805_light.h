@@ -84,7 +84,6 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_max_refresh_rate(uint32_t interval_us) { this->max_refresh_rate_ = interval_us; }
   void set_transition_speed(uint32_t speed_ms) { this->transition_speed_ = speed_ms / 1000.0f; }
   void set_dithering(bool dithering) { this->dithering_ = dithering; }
-  void set_constant_brightness(bool constant_brightness) { this->constant_brightness_ = constant_brightness; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
