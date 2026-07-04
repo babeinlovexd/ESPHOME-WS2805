@@ -11,7 +11,8 @@ from esphome.const import (
     CONF_COLOR_INTERLOCK,
     CONF_COLD_WHITE_COLOR_TEMPERATURE,
     CONF_WARM_WHITE_COLOR_TEMPERATURE,
-    CONF_NUMBER
+    CONF_NUMBER,
+    CONF_CONSTANT_BRIGHTNESS,
 )
 
 CONF_CHANNEL_ORDER = "channel_order"
@@ -58,6 +59,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Required(CONF_NUM_LEDS): cv.positive_int,
     cv.Optional(CONF_CHANNEL_ORDER, default="GRBWWCW"): cv.one_of(*CHANNEL_ORDERS, upper=True),
     cv.Optional(CONF_COLOR_INTERLOCK, default=False): cv.boolean,
+    cv.Optional(CONF_CONSTANT_BRIGHTNESS, default=False): cv.boolean,
     cv.Optional(CONF_COLD_WHITE_COLOR_TEMPERATURE, default="153 mireds"): cv.color_temperature,
     cv.Optional(CONF_WARM_WHITE_COLOR_TEMPERATURE, default="500 mireds"): cv.color_temperature,
     cv.Optional("max_refresh_rate", default="4ms"): cv.positive_time_period_microseconds,
@@ -86,3 +88,5 @@ async def to_code(config):
         cg.add(var.set_transition_speed(config["cct_transition_speed"]))
     if "dithering" in config:
         cg.add(var.set_dithering(config["dithering"]))
+    if CONF_CONSTANT_BRIGHTNESS in config:
+        cg.add(var.set_constant_brightness(config[CONF_CONSTANT_BRIGHTNESS]))
