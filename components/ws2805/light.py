@@ -20,6 +20,16 @@ DEPENDENCIES = ["esp32"]
 ws2805_ns = cg.esphome_ns.namespace("ws2805")
 WS2805LightOutput = ws2805_ns.class_("WS2805LightOutput", light.AddressableLight)
 
+CONF_CHANNEL_ORDER = "channel_order"
+
+# Maps channel_order name to (r_offset, g_offset, b_offset, ww_offset, cw_offset)
+CHANNEL_ORDERS = {
+    "RGBWWCW": (0, 1, 2, 3, 4),
+    "RGBCWWW": (0, 1, 2, 4, 3),
+    "GRBWWCW": (1, 0, 2, 3, 4),
+    "GRBCWWW": (1, 0, 2, 4, 3),
+}
+
 def validate_rmt_usage(config):
     variant = esp32.get_esp32_variant()
     if variant == const.VARIANT_ESP32:
@@ -54,6 +64,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional("max_refresh_rate", default="4ms"): cv.positive_time_period_microseconds,
     cv.Optional("cct_transition_speed", default="3s"): cv.positive_time_period_milliseconds,
     cv.Optional("dithering", default=False): cv.boolean,
+    cv.Optional(CONF_CHANNEL_ORDER, default="RGBWWCW"): cv.one_of(*CHANNEL_ORDERS, upper=True),
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -73,3 +84,5 @@ async def to_code(config):
         cg.add(var.set_transition_speed(config["cct_transition_speed"]))
     if "dithering" in config:
         cg.add(var.set_dithering(config["dithering"]))
+    order = CHANNEL_ORDERS[config[CONF_CHANNEL_ORDER]]
+    cg.add(var.set_channel_offsets(*order))

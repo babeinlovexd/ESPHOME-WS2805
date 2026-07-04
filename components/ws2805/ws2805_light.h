@@ -84,6 +84,13 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_max_refresh_rate(uint32_t interval_us) { this->max_refresh_rate_ = interval_us; }
   void set_transition_speed(uint32_t speed_ms) { this->transition_speed_ = speed_ms / 1000.0f; }
   void set_dithering(bool dithering) { this->dithering_ = dithering; }
+  void set_channel_offsets(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw) {
+    this->r_offset_ = r;
+    this->g_offset_ = g;
+    this->b_offset_ = b;
+    this->ww_offset_ = ww;
+    this->cw_offset_ = cw;
+  }
 
  private:
   uint8_t calculate_dither_(float base, float &error);
@@ -104,7 +111,7 @@ class WS2805LightOutput : public light::AddressableLight {
     }
 
     uint8_t *base = this->buf_ + 5 * index;
-    return light::ESPColorView(base + 1, base + 0, base + 2, nullptr, this->effect_data_ + index, &this->correction_);
+    return light::ESPColorView(base + this->r_offset_, base + this->g_offset_, base + this->b_offset_, nullptr, this->effect_data_ + index, &this->correction_);
   }
 
   uint16_t num_leds_;
@@ -125,6 +132,12 @@ class WS2805LightOutput : public light::AddressableLight {
   bool dithering_{false};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
+
+  uint8_t r_offset_{0};
+  uint8_t g_offset_{1};
+  uint8_t b_offset_{2};
+  uint8_t ww_offset_{3};
+  uint8_t cw_offset_{4};
 
   uint8_t *buf_{nullptr};
   LedParams params_;

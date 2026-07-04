@@ -327,16 +327,16 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   int n = this->size();
   if (clear_rgb) {
     for (int i = 0; i < n; i++) {
-      this->buf_[i * 5 + 0] = 0;
-      this->buf_[i * 5 + 1] = 0;
-      this->buf_[i * 5 + 2] = 0;
-      this->buf_[i * 5 + 3] = ww;
-      this->buf_[i * 5 + 4] = cw;
+      this->buf_[i * 5 + this->r_offset_] = 0;
+      this->buf_[i * 5 + this->g_offset_] = 0;
+      this->buf_[i * 5 + this->b_offset_] = 0;
+      this->buf_[i * 5 + this->ww_offset_] = ww;
+      this->buf_[i * 5 + this->cw_offset_] = cw;
     }
   } else {
     for (int i = 0; i < n; i++) {
-      this->buf_[i * 5 + 3] = ww;
-      this->buf_[i * 5 + 4] = cw;
+      this->buf_[i * 5 + this->ww_offset_] = ww;
+      this->buf_[i * 5 + this->cw_offset_] = cw;
     }
   }
 
