@@ -139,7 +139,7 @@ void WS2805LightOutput::setup() {
 #endif
   channel_cfg.trans_queue_depth = 1;
   channel_cfg.flags.invert_out = 0;
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32H2)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) // Only the ESP32-S3 supports DMA for the RMT peripheral
   channel_cfg.flags.with_dma = 1;
 #else
   channel_cfg.flags.with_dma = 0;
