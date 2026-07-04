@@ -49,12 +49,14 @@ light:
     name: "Mein WS2805 Streifen - Zone 1"
     pin: GPIO4 # Der GPIO-Pin, an den deine Datenleitung angeschlossen ist
     num_leds: 100 # Gesamtzahl der LEDs auf dem Streifen
-    color_interlock: false
-    cold_white_color_temperature: 153 mireds
-    warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
-    dithering: true
-    gamma_correct: 2.2
+    channel_order: GRBWWCW # Optional, Standard: GRBWWCW (Optionen: RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW)
+    color_interlock: false # Optional, Standard: false
+    constant_brightness: false # Optional, Standard: false
+    cold_white_color_temperature: 153 mireds # Optional, Standard: 153 mireds
+    warm_white_color_temperature: 500 mireds # Optional, Standard: 500 mireds
+    cct_transition_speed: 3s # Optional, Standard: 3s
+    dithering: true # Optional, Standard: false
+    gamma_correct: 2.2 # Optional, Standard: 2.8 (Vererbt von ESPHome)
     effects:
       - addressable_rainbow:
 
@@ -79,7 +81,9 @@ Du kannst alle Standard-ESPHome-Variablen (wie `name`, `id`, `gamma_correct`, `e
 
 * **`pin`** *(Erforderlich)*: Der GPIO-Pin, an den deine Datenleitung angeschlossen ist.
 * **`num_leds`** *(Erforderlich)*: Gesamtzahl der LEDs auf dem Streifen.
+* **`channel_order`** *(Optional, string)*: Legt die Reihenfolge der Farbkanäle für den LED-Strip fest. Unterstützt werden `RGBWWCW`, `RGBCWWW`, `GRBWWCW` oder `GRBCWWW`. Standard ist `GRBWWCW`.
 * **`color_interlock`** *(Optional, Boolean)*: Verhindert, dass die weißen LEDs und die RGB-LEDs gleichzeitig mit voller Kraft leuchten (nützlich für das Netzteil-Management oder thermische Limits). Standard ist `false`.
+* **`constant_brightness`** *(Optional, boolean)*: Hält die Gesamthelligkeit bei Farbwechseln konstant. Standard ist `false`.
 * **`cold_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Kaltweiß-LEDs in Mireds. Standardwert ist `153 mireds` (~6500K).
 * **`warm_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Warmweiß-LEDs in Mireds. Standardwert ist `500 mireds` (~2000K).
 * **`cct_transition_speed`** *(Optional, time)*: Steuert die Geschwindigkeit der Fade-Übergänge für die weißen (CCT) Kanäle in Sekunden/Millisekunden (z.B. `3s`). Der Standardwert ist `3s`.

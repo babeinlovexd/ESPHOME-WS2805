@@ -49,12 +49,14 @@ light:
     name: "My WS2805 Strip - Zone 1"
     pin: GPIO4 # The GPIO pin your data line is connected to
     num_leds: 100 # Total number of LEDs on the strip
-    color_interlock: false
-    cold_white_color_temperature: 153 mireds
-    warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
-    dithering: true
-    gamma_correct: 2.2
+    channel_order: GRBWWCW # Optional, Default: GRBWWCW (Options: RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW)
+    color_interlock: false # Optional, Default: false
+    constant_brightness: false # Optional, Default: false
+    cold_white_color_temperature: 153 mireds # Optional, Default: 153 mireds
+    warm_white_color_temperature: 500 mireds # Optional, Default: 500 mireds
+    cct_transition_speed: 3s # Optional, Default: 3s
+    dithering: true # Optional, Default: false
+    gamma_correct: 2.2 # Optional, Default: 2.8 (Inherited from ESPHome)
     effects:
       - addressable_rainbow:
 
@@ -79,7 +81,9 @@ You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, 
 
 * **`pin`** *(Required)*: The GPIO pin your data line is connected to.
 * **`num_leds`** *(Required)*: Total number of LEDs on the strip.
+* **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`. Defaults to `GRBWWCW`.
 * **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
+* **`constant_brightness`** *(Optional, boolean)*: Preserves the overall brightness level across color changes. Defaults to `false`.
 * **`cold_white_color_temperature`** *(Optional)*: The color temperature of your cold white LEDs in mireds. Default value is `153 mireds` (~6500K).
 * **`warm_white_color_temperature`** *(Optional)*: The color temperature of your warm white LEDs in mireds. Default value is `500 mireds` (~2000K).
 * **`cct_transition_speed`** *(Optional, time)*: Controls the speed of fading transitions for the white (CCT) channels. Default value is `3s`.
