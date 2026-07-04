@@ -139,7 +139,7 @@ void WS2805LightOutput::setup() {
 #endif
   channel_cfg.trans_queue_depth = 1;
   channel_cfg.flags.invert_out = 0;
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32H2)
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
   channel_cfg.flags.with_dma = 1;
 #else
   channel_cfg.flags.with_dma = 0;
@@ -327,16 +327,16 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   int n = this->size();
   if (clear_rgb) {
     for (int i = 0; i < n; i++) {
-      this->buf_[i * 5 + 0] = 0;
-      this->buf_[i * 5 + 1] = 0;
-      this->buf_[i * 5 + 2] = 0;
-      this->buf_[i * 5 + 3] = ww;
-      this->buf_[i * 5 + 4] = cw;
+      this->buf_[i * 5 + this->offset_r_] = 0;
+      this->buf_[i * 5 + this->offset_g_] = 0;
+      this->buf_[i * 5 + this->offset_b_] = 0;
+      this->buf_[i * 5 + this->offset_w1_] = ww;
+      this->buf_[i * 5 + this->offset_w2_] = cw;
     }
   } else {
     for (int i = 0; i < n; i++) {
-      this->buf_[i * 5 + 3] = ww;
-      this->buf_[i * 5 + 4] = cw;
+      this->buf_[i * 5 + this->offset_w1_] = ww;
+      this->buf_[i * 5 + this->offset_w2_] = cw;
     }
   }
 

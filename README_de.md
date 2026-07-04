@@ -79,6 +79,7 @@ Du kannst alle Standard-ESPHome-Variablen (wie `name`, `id`, `gamma_correct`, `e
 
 * **`pin`** *(Erforderlich)*: Der GPIO-Pin, an den deine Datenleitung angeschlossen ist.
 * **`num_leds`** *(Erforderlich)*: Gesamtzahl der LEDs auf dem Streifen.
+* **`channel_order`** *(Optional, string)*: Legt die Reihenfolge der Farbkanäle für den LED-Strip fest. Unterstützt werden `RGBWWCW`, `RGBCWWW`, `GRBWWCW` oder `GRBCWWW`. Standard ist `GRBWWCW`.
 * **`color_interlock`** *(Optional, Boolean)*: Verhindert, dass die weißen LEDs und die RGB-LEDs gleichzeitig mit voller Kraft leuchten (nützlich für das Netzteil-Management oder thermische Limits). Standard ist `false`.
 * **`cold_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Kaltweiß-LEDs in Mireds. Standardwert ist `153 mireds` (~6500K).
 * **`warm_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Warmweiß-LEDs in Mireds. Standardwert ist `500 mireds` (~2000K).
