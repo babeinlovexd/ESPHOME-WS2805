@@ -11,6 +11,7 @@ from esphome.const import (
     CONF_COLOR_INTERLOCK,
     CONF_COLD_WHITE_COLOR_TEMPERATURE,
     CONF_WARM_WHITE_COLOR_TEMPERATURE,
+    CONF_CONSTANT_BRIGHTNESS,
     CONF_NUMBER
 )
 
@@ -60,6 +61,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional(CONF_COLOR_INTERLOCK, default=False): cv.boolean,
     cv.Optional(CONF_COLD_WHITE_COLOR_TEMPERATURE, default="153 mireds"): cv.color_temperature,
     cv.Optional(CONF_WARM_WHITE_COLOR_TEMPERATURE, default="500 mireds"): cv.color_temperature,
+    cv.Optional(CONF_CONSTANT_BRIGHTNESS, default=False): cv.boolean,
     cv.Optional("max_refresh_rate", default="4ms"): cv.positive_time_period_microseconds,
     cv.Optional("cct_transition_speed", default="3s"): cv.positive_time_period_milliseconds,
     cv.Optional("dithering", default=False): cv.boolean,
@@ -76,6 +78,7 @@ async def to_code(config):
     cg.add(var.set_color_interlock(config[CONF_COLOR_INTERLOCK]))
     cg.add(var.set_cold_white_temperature(config[CONF_COLD_WHITE_COLOR_TEMPERATURE]))
     cg.add(var.set_warm_white_temperature(config[CONF_WARM_WHITE_COLOR_TEMPERATURE]))
+    cg.add(var.set_constant_brightness(config[CONF_CONSTANT_BRIGHTNESS]))
 
     channel_order = CHANNEL_ORDERS[config[CONF_CHANNEL_ORDER]]
     cg.add(var.set_channel_order(*channel_order))

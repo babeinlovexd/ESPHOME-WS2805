@@ -91,6 +91,7 @@ class WS2805LightOutput : public light::AddressableLight {
     this->offset_w1_ = w1;
     this->offset_w2_ = w2;
   }
+  void set_constant_brightness(bool constant_brightness) { this->constant_brightness_ = constant_brightness; }
 
  private:
   uint8_t calculate_dither_(float base, float &error);
@@ -142,6 +143,7 @@ class WS2805LightOutput : public light::AddressableLight {
   float step_cw_{0.0f};
   float step_ww_{0.0f};
   bool dithering_{false};
+  bool constant_brightness_{false};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
 

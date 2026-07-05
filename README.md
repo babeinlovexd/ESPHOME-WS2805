@@ -49,12 +49,16 @@ light:
     name: "My WS2805 Strip - Zone 1"
     pin: GPIO4 # The GPIO pin your data line is connected to
     num_leds: 100 # Total number of LEDs on the strip
-    color_interlock: false
-    cold_white_color_temperature: 153 mireds
-    warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
-    dithering: true
-    gamma_correct: 2.2
+    # Optional configurations with default values
+    channel_order: GRBWWCW # Optional. Supports RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW. Default: GRBWWCW
+    color_interlock: false # Optional. Prevents simultaneous maximum brightness of white and RGB. Default: false
+    constant_brightness: false # Optional. Prevents artificial brightness throttling. Default: false
+    cold_white_color_temperature: 153 mireds # Optional. Color temperature for cold white. Default: 153 mireds
+    warm_white_color_temperature: 500 mireds # Optional. Color temperature for warm white. Default: 500 mireds
+    cct_transition_speed: 3s # Optional. Speed for CCT transitions. Default: 3s
+    dithering: true # Optional. Temporal dithering for CCT. Default: false
+    max_refresh_rate: 4ms # Optional. Maximum refresh rate. Default: 4ms
+    gamma_correct: 2.2 # Optional (from ESPHome). Default: 2.2
     effects:
       - addressable_rainbow:
 
@@ -81,9 +85,11 @@ You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, 
 * **`num_leds`** *(Required)*: Total number of LEDs on the strip.
 * **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`. Defaults to `GRBWWCW`.
 * **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
+* **`constant_brightness`** *(Optional, boolean)*: Disables the ESPHome internal brightness throttling and behaves like a standard ESPHome RGBWW light (allowing 100% power on all channels). Defaults to `false`.
 * **`cold_white_color_temperature`** *(Optional)*: The color temperature of your cold white LEDs in mireds. Default value is `153 mireds` (~6500K).
 * **`warm_white_color_temperature`** *(Optional)*: The color temperature of your warm white LEDs in mireds. Default value is `500 mireds` (~2000K).
 * **`cct_transition_speed`** *(Optional, time)*: Controls the speed of fading transitions for the white (CCT) channels. Default value is `3s`.
+* **`max_refresh_rate`** *(Optional, time)*: Limits the maximum update rate to prevent RMT timeouts. Defaults to `4ms`.
 * **`dithering`** *(Optional, boolean)*: Enables temporal dithering for the white (CW/WW) channels, reducing stepping/flickering at low brightness or during slow fading. Defaults to `false`. See [docu.md](docu.md) for more details.
 
 ---
