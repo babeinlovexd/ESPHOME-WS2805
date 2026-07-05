@@ -49,12 +49,16 @@ light:
     name: "Mein WS2805 Streifen - Zone 1"
     pin: GPIO4 # Der GPIO-Pin, an den deine Datenleitung angeschlossen ist
     num_leds: 100 # Gesamtzahl der LEDs auf dem Streifen
-    color_interlock: false
-    cold_white_color_temperature: 153 mireds
-    warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
-    dithering: true
-    gamma_correct: 2.2
+    # Optionale Konfigurationen mit Standardwerten
+    channel_order: GRBWWCW # Optional. Unterstützt RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW. Standard: GRBWWCW
+    color_interlock: false # Optional. Verhindert gleichzeitige maximale Helligkeit von Weiß und RGB. Standard: false
+    constant_brightness: false # Optional. Verhindert die künstliche Drosselung der Helligkeit. Standard: false
+    cold_white_color_temperature: 153 mireds # Optional. Farbtemperatur Kaltweiß. Standard: 153 mireds
+    warm_white_color_temperature: 500 mireds # Optional. Farbtemperatur Warmweiß. Standard: 500 mireds
+    cct_transition_speed: 3s # Optional. Geschwindigkeit für CCT-Übergänge. Standard: 3s
+    dithering: true # Optional. Temporales Dithering für CCT. Standard: false
+    max_refresh_rate: 4ms # Optional. Maximale Aktualisierungsrate. Standard: 4ms
+    gamma_correct: 2.2 # Optional (von ESPHome). Standard: 2.2
     effects:
       - addressable_rainbow:
 
@@ -81,9 +85,11 @@ Du kannst alle Standard-ESPHome-Variablen (wie `name`, `id`, `gamma_correct`, `e
 * **`num_leds`** *(Erforderlich)*: Gesamtzahl der LEDs auf dem Streifen.
 * **`channel_order`** *(Optional, string)*: Legt die Reihenfolge der Farbkanäle für den LED-Strip fest. Unterstützt werden `RGBWWCW`, `RGBCWWW`, `GRBWWCW` oder `GRBCWWW`. Standard ist `GRBWWCW`.
 * **`color_interlock`** *(Optional, Boolean)*: Verhindert, dass die weißen LEDs und die RGB-LEDs gleichzeitig mit voller Kraft leuchten (nützlich für das Netzteil-Management oder thermische Limits). Standard ist `false`.
+* **`constant_brightness`** *(Optional, Boolean)*: Deaktiviert die ESPHome-interne Helligkeitsdrosselung der Kanäle und verhält sich wie eine Standard-ESPHome-RGBWW-Lampe (ermöglicht 100 % Leistung auf allen Kanälen). Standard ist `false`.
 * **`cold_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Kaltweiß-LEDs in Mireds. Standardwert ist `153 mireds` (~6500K).
 * **`warm_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Warmweiß-LEDs in Mireds. Standardwert ist `500 mireds` (~2000K).
 * **`cct_transition_speed`** *(Optional, time)*: Steuert die Geschwindigkeit der Fade-Übergänge für die weißen (CCT) Kanäle in Sekunden/Millisekunden (z.B. `3s`). Der Standardwert ist `3s`.
+* **`max_refresh_rate`** *(Optional, time)*: Limitiert die maximale Updaterate um RMT Timeouts zu verhindern. Standard ist `4ms`.
 * **`dithering`** *(Optional, Boolean)*: Aktiviert temporales Dithering für die weißen (CW/WW) Kanäle, was das Ruckeln/Flimmern bei geringer Helligkeit oder langsamem Faden verringert. Standard ist `false`. Siehe [docu.md](docu.md) für weitere Details.
 
 ---
