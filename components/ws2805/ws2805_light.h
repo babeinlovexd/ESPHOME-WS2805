@@ -154,12 +154,13 @@ class WS2805LightOutput : public light::AddressableLight {
   float error_ww_{0.0f};
 
   // Configurable RMT timing (defaults: WS2805 datasheet center values)
+  // 800ns low durations eliminate quantization at 80MHz RMT (exact 64 ticks)
   uint8_t rmt_clk_div_{8};
-  uint32_t bit0_high_ns_{300};   // spec: 220-380ns → center at 300ns
-  uint32_t bit0_low_ns_{790};    // spec: 580ns-1µs → center at ~790ns to keep 1.25µs period
-  uint32_t bit1_high_ns_{790};   // spec: 580ns-1µs
-  uint32_t bit1_low_ns_{790};    // spec: 580ns-1µs — was 400ns, below minimum!
-  uint32_t reset_pulse_us_{300}; // spec: ≥280µs
+  uint32_t bit0_high_ns_{300};   // spec: 220-380ns → center at 300ns (24 ticks @ 80MHz)
+  uint32_t bit0_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
+  uint32_t bit1_high_ns_{800};   // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
+  uint32_t bit1_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
+  uint32_t reset_pulse_us_{300}; // spec: ≥280µs (24000 ticks @ 80MHz)
 
   uint8_t *buf_{nullptr};
   LedParams params_;

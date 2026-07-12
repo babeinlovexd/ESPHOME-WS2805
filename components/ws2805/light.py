@@ -68,9 +68,9 @@ CONFIG_SCHEMA = cv.All(
     # Advanced RMT timing — defaults center in WS2805 datasheet ranges
     cv.Optional("rmt_clk_div", default=8): cv.int_range(1, 255),
     cv.Optional("bit0_high_ns", default=300): cv.positive_int,
-    cv.Optional("bit0_low_ns", default=790): cv.positive_int,
-    cv.Optional("bit1_high_ns", default=790): cv.positive_int,
-    cv.Optional("bit1_low_ns", default=790): cv.positive_int,
+    cv.Optional("bit0_low_ns", default=800): cv.positive_int,
+    cv.Optional("bit1_high_ns", default=800): cv.positive_int,
+    cv.Optional("bit1_low_ns", default=800): cv.positive_int,
     cv.Optional("reset_pulse_us", default=300): cv.positive_int,
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage

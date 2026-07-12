@@ -210,17 +210,18 @@ void WS2805LightOutput::setup() {
 
   ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz (Ratio: %f)", ws2805_rmt_resolution_hz(), ratio);
 
-  this->params_.bit0.duration0 = (uint32_t) (ratio * this->bit0_high_ns_);
+  // Round to nearest tick — bounds error to ±0.5 ticks regardless of RMT clock freq
+  this->params_.bit0.duration0 = (uint32_t) (ratio * this->bit0_high_ns_ + 0.5f);
   this->params_.bit0.level0 = 1;
-  this->params_.bit0.duration1 = (uint32_t) (ratio * this->bit0_low_ns_);
+  this->params_.bit0.duration1 = (uint32_t) (ratio * this->bit0_low_ns_ + 0.5f);
   this->params_.bit0.level1 = 0;
-  this->params_.bit1.duration0 = (uint32_t) (ratio * this->bit1_high_ns_);
+  this->params_.bit1.duration0 = (uint32_t) (ratio * this->bit1_high_ns_ + 0.5f);
   this->params_.bit1.level0 = 1;
-  this->params_.bit1.duration1 = (uint32_t) (ratio * this->bit1_low_ns_);
+  this->params_.bit1.duration1 = (uint32_t) (ratio * this->bit1_low_ns_ + 0.5f);
   this->params_.bit1.level1 = 0;
-  this->params_.reset.duration0 = (uint32_t) (ratio * 0);
+  this->params_.reset.duration0 = 0;  // always zero — hi-duration of reset symbol is unused
   this->params_.reset.level0 = 1;
-  this->params_.reset.duration1 = (uint32_t) (ratio * this->reset_pulse_us_ * 1000);
+  this->params_.reset.duration1 = (uint32_t) (ratio * this->reset_pulse_us_ * 1000 + 0.5f);
   this->params_.reset.level1 = 0;
 
   return;
