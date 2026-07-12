@@ -84,6 +84,12 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_max_refresh_rate(uint32_t interval_us) { this->max_refresh_rate_ = interval_us; }
   void set_transition_speed(uint32_t speed_ms) { this->transition_speed_ = speed_ms / 1000.0f; }
   void set_dithering(bool dithering) { this->dithering_ = dithering; }
+  void set_rmt_clk_div(uint8_t div) { this->rmt_clk_div_ = div; }
+  void set_bit0_high_ns(uint32_t ns) { this->bit0_high_ns_ = ns; }
+  void set_bit0_low_ns(uint32_t ns) { this->bit0_low_ns_ = ns; }
+  void set_bit1_high_ns(uint32_t ns) { this->bit1_high_ns_ = ns; }
+  void set_bit1_low_ns(uint32_t ns) { this->bit1_low_ns_ = ns; }
+  void set_reset_pulse_us(uint32_t us) { this->reset_pulse_us_ = us; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
@@ -146,6 +152,14 @@ class WS2805LightOutput : public light::AddressableLight {
   bool constant_brightness_{false};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
+
+  // Configurable RMT timing (defaults: WS2805 datasheet center values)
+  uint8_t rmt_clk_div_{8};
+  uint32_t bit0_high_ns_{300};   // spec: 220-380ns → center at 300ns
+  uint32_t bit0_low_ns_{790};    // spec: 580ns-1µs → center at ~790ns to keep 1.25µs period
+  uint32_t bit1_high_ns_{790};   // spec: 580ns-1µs
+  uint32_t bit1_low_ns_{790};    // spec: 580ns-1µs — was 400ns, below minimum!
+  uint32_t reset_pulse_us_{300}; // spec: ≥280µs
 
   uint8_t *buf_{nullptr};
   LedParams params_;

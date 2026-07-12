@@ -65,6 +65,13 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional("max_refresh_rate", default="4ms"): cv.positive_time_period_microseconds,
     cv.Optional("cct_transition_speed", default="3s"): cv.positive_time_period_milliseconds,
     cv.Optional("dithering", default=False): cv.boolean,
+    # Advanced RMT timing — defaults center in WS2805 datasheet ranges
+    cv.Optional("rmt_clk_div", default=8): cv.int_range(1, 255),
+    cv.Optional("bit0_high_ns", default=300): cv.positive_int,
+    cv.Optional("bit0_low_ns", default=790): cv.positive_int,
+    cv.Optional("bit1_high_ns", default=790): cv.positive_int,
+    cv.Optional("bit1_low_ns", default=790): cv.positive_int,
+    cv.Optional("reset_pulse_us", default=300): cv.positive_int,
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -89,3 +96,15 @@ async def to_code(config):
         cg.add(var.set_transition_speed(config["cct_transition_speed"]))
     if "dithering" in config:
         cg.add(var.set_dithering(config["dithering"]))
+    if "rmt_clk_div" in config:
+        cg.add(var.set_rmt_clk_div(config["rmt_clk_div"]))
+    if "bit0_high_ns" in config:
+        cg.add(var.set_bit0_high_ns(config["bit0_high_ns"]))
+    if "bit0_low_ns" in config:
+        cg.add(var.set_bit0_low_ns(config["bit0_low_ns"]))
+    if "bit1_high_ns" in config:
+        cg.add(var.set_bit1_high_ns(config["bit1_high_ns"]))
+    if "bit1_low_ns" in config:
+        cg.add(var.set_bit1_low_ns(config["bit1_low_ns"]))
+    if "reset_pulse_us" in config:
+        cg.add(var.set_reset_pulse_us(config["reset_pulse_us"]))

@@ -184,7 +184,7 @@ void WS2805LightOutput::setup() {
   rmt_cfg.tx_config.idle_output_en = true;
   rmt_cfg.tx_config.idle_level = RMT_IDLE_LEVEL_LOW;
   rmt_cfg.tx_config.carrier_en = false;
-  rmt_cfg.clk_div = 8;
+  rmt_cfg.clk_div = this->rmt_clk_div_;
 
   this->channel_ = RMT_CHANNEL_MAX;
   for (int ch = 0; ch < RMT_CHANNEL_MAX; ch++) {
@@ -210,17 +210,17 @@ void WS2805LightOutput::setup() {
 
   ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz (Ratio: %f)", ws2805_rmt_resolution_hz(), ratio);
 
-  this->params_.bit0.duration0 = (uint32_t) (ratio * 400);
+  this->params_.bit0.duration0 = (uint32_t) (ratio * this->bit0_high_ns_);
   this->params_.bit0.level0 = 1;
-  this->params_.bit0.duration1 = (uint32_t) (ratio * 850);
+  this->params_.bit0.duration1 = (uint32_t) (ratio * this->bit0_low_ns_);
   this->params_.bit0.level1 = 0;
-  this->params_.bit1.duration0 = (uint32_t) (ratio * 850);
+  this->params_.bit1.duration0 = (uint32_t) (ratio * this->bit1_high_ns_);
   this->params_.bit1.level0 = 1;
-  this->params_.bit1.duration1 = (uint32_t) (ratio * 400);
+  this->params_.bit1.duration1 = (uint32_t) (ratio * this->bit1_low_ns_);
   this->params_.bit1.level1 = 0;
   this->params_.reset.duration0 = (uint32_t) (ratio * 0);
   this->params_.reset.level0 = 1;
-  this->params_.reset.duration1 = (uint32_t) (ratio * 300000);
+  this->params_.reset.duration1 = (uint32_t) (ratio * this->reset_pulse_us_ * 1000);
   this->params_.reset.level1 = 0;
 
   return;
@@ -258,6 +258,10 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     } else if (color_mode == light::ColorMode::RGB) {
       target_cw = 0.0f;
       target_ww = 0.0f;
+      this->current_cw_ = 0.0f;  // void: snap whites to zero — prevents lingering CCT values
+      this->current_ww_ = 0.0f;  //       from previous white mode bleeding into RGB effects
+      this->step_cw_ = 0.0f;
+      this->step_ww_ = 0.0f;
     }
   }
 
