@@ -148,7 +148,7 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   // Give the RMT refill ISR high priority so it preempts the WiFi/BLE stack.
   // At priority 0 (low) a busy radio starves the refill and the strip glitches
   // to white mid-frame. 3 is the highest priority available to a C-level ISR.
-  channel_cfg.intr_priority = 3;
+  channel_cfg.intr_priority = this->isr_priority_;
 
   if (rmt_new_tx_channel(&channel_cfg, &channel) != ESP_OK) {
     ESP_LOGE(TAG, "%s channel creation failed", name);

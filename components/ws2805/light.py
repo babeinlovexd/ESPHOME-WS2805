@@ -18,6 +18,7 @@ from esphome.const import (
 CONF_CHANNEL_ORDER = "channel_order"
 CONF_DIN_PIN = "din_pin"
 CONF_FDIN_PIN = "fdin_pin"
+CONF_ISR_PRIORITY = "isr_priority"
 CHANNEL_ORDERS = {
     "RGBWWCW": (0, 1, 2, 3, 4),
     "RGBCWWW": (0, 1, 2, 4, 3),
@@ -76,6 +77,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional("bit1_high_ns", default=800): cv.positive_int,
     cv.Optional("bit1_low_ns", default=800): cv.positive_int,
     cv.Optional("reset_pulse_us", default=300): cv.positive_int,
+    cv.Optional(CONF_ISR_PRIORITY, default=3): cv.int_range(min=1, max=3),
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -112,3 +114,6 @@ async def to_code(config):
         cg.add(var.set_bit1_low_ns(config["bit1_low_ns"]))
     if "reset_pulse_us" in config:
         cg.add(var.set_reset_pulse_us(config["reset_pulse_us"]))
+
+    if CONF_ISR_PRIORITY in config:
+        cg.add(var.set_isr_priority(config[CONF_ISR_PRIORITY]))

@@ -100,6 +100,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_bit1_high_ns(uint32_t ns) { this->bit1_high_ns_ = ns; }
   void set_bit1_low_ns(uint32_t ns) { this->bit1_low_ns_ = ns; }
   void set_reset_pulse_us(uint32_t us) { this->reset_pulse_us_ = us; }
+  void set_isr_priority(uint8_t priority) { this->isr_priority_ = priority; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
@@ -221,6 +222,7 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t bit1_high_ns_{800};   // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t bit1_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t reset_pulse_us_{300}; // spec: ≥280µs (24000 ticks @ 80MHz)
+  uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
 
   uint8_t *buf_{nullptr};
   LedParams params_;
