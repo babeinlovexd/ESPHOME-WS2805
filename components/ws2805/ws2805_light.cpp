@@ -1,8 +1,9 @@
 #include "ws2805_light.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
-#include <esp_heap_caps.h>
+#include <algorithm>
 #include <cmath>
+#include <esp_heap_caps.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "soc/soc_caps.h"  // SOC_RMT_SUPPORT_DMA, SOC_RMT_MEM_WORDS_PER_CHANNEL
 #endif
@@ -306,22 +307,30 @@ void WS2805LightOutput::transmit_clear_frame_() {
 void WS2805LightOutput::write_state(light::LightState *state) {
   if (this->buf_ == nullptr || !this->setup_complete_) return;
 
-  // A buffer-modifying effect (rainbow, color wipe, twinkle, ...) owns buf_: it
-  // writes per-LED RGB through the color views each frame. Flattening the strip
-  // to a single color here would erase the effect and, depending on the frame
-  // timing relative to the incoming command, leak a stale solid color (e.g.
-  // warm white rendering as green). Transmit exactly what the effect drew. The
-  // white bytes stay zero: cleared in clear_effect_data() when the effect
-  // started, and effects never touch them (the color view exposes RGB only).
-  if (this->is_effect_active()) {
-    this->mark_shown_();
-    if (!this->encode_and_transmit_()) return;
-    this->status_clear_warning();
-    return;
-  }
-
   float target_r, target_g, target_b, target_cw, target_ww;
   this->read_target_values_(state, target_r, target_g, target_b, target_cw, target_ww);
+
+  if (this->is_effect_active()) {
+    if (this->effect_whites_suppressed_) {
+      if (!this->effect_whites_captured_) {
+        this->suppressed_cw_ = target_cw;
+        this->suppressed_ww_ = target_ww;
+        this->effect_whites_captured_ = true;
+      } else if (this->suppressed_cw_ != target_cw || this->suppressed_ww_ != target_ww) {
+        this->effect_whites_suppressed_ = false;
+      }
+
+      if (this->effect_whites_suppressed_) {
+        target_cw = 0.0f;
+        target_ww = 0.0f;
+      }
+    }
+  } else {
+    this->effect_whites_suppressed_ = false;
+    this->effect_whites_captured_ = false;
+    this->suppressed_cw_ = 0.0f;
+    this->suppressed_ww_ = 0.0f;
+  }
 
   // Elapsed time since the previous frame drives the hardware-side white fade.
   // Clamp to 0.1s so a long idle gap can't produce a single huge step (which
@@ -342,11 +351,21 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   uint8_t g8 = static_cast<uint8_t>(std::round(target_g * 255.0f));
   uint8_t b8 = static_cast<uint8_t>(std::round(target_b * 255.0f));
 
-  // No effect active (handled by the early return above): write ALL 5 channels
-  // from remote_values. buf_ is the single source of truth for the solid-color
-  // path — overriding whatever update_state filled — so the true target state
-  // is always shown.
-  this->fill_led_buffer_(r8, g8, b8, ww, cw);
+  if (this->is_effect_active()) {
+    int n = this->size();
+    for (int i = 0; i < n; i++) {
+      uint8_t *p = this->buf_ + BYTES_PER_LED * i;
+      if (this->color_interlock_ && (ww > 0 || cw > 0)) {
+        p[this->offset_r_] = 0;
+        p[this->offset_g_] = 0;
+        p[this->offset_b_] = 0;
+      }
+      p[this->offset_w1_] = ww;
+      p[this->offset_w2_] = cw;
+    }
+  } else {
+    this->fill_led_buffer_(r8, g8, b8, ww, cw);
+  }
 
   this->mark_shown_();
 
@@ -362,11 +381,48 @@ void WS2805LightOutput::write_state(light::LightState *state) {
 void WS2805LightOutput::read_target_values_(light::LightState *state, float &r, float &g, float &b, float &cw, float &ww) {
   state->remote_values.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
 
+  // Fallback: if HA sent color_temp (mireds) but the ESPHome API layer didn't
+  // populate cold_white_/warm_white_, compute them here from the stored hardware
+  // CCT range (cold_white_temperature_ → warm_white_temperature_).
+  // Linear: cold_white_temperature_ mireds → 100% CW, warm_white_temperature_ mireds → 100% WW.
+  //
+  // Guards:
+  //  - is_on: when the light is off, as_rgbww correctly returns cw=ww=0 but
+  //    get_color_temperature() still holds the stale CCT from when it was on.
+  //    Without this guard the fallback re-enables whites on an off light.
+  //  - color_mode != RGB: never fire in pure RGB mode — the interlock zeros
+  //    CW/WW anyway, but we avoid wasted computation.
+  float ct = state->remote_values.get_color_temperature();
+  auto color_mode = state->remote_values.get_color_mode();
+  if (state->remote_values.is_on() &&
+      ct > 0.0f && cw == 0.0f && ww == 0.0f &&
+      color_mode != light::ColorMode::RGB) {
+    float range = this->warm_white_temperature_ - this->cold_white_temperature_;
+    if (range > 0.0f) {
+      float t = (ct - this->cold_white_temperature_) / range;
+      t = std::clamp(t, 0.0f, 1.0f);
+      float brightness = state->remote_values.get_brightness();
+      if (this->constant_brightness_) {
+        float max_white = std::max(1.0f - t, t);
+        if (max_white > 0.0f) {
+            brightness /= max_white;
+        }
+      }
+      cw = (1.0f - t) * brightness;
+      ww = t * brightness;
+    }
+  }
+
+  // Color interlock: whites and RGB cannot be active simultaneously.
+  // If whites are set (via CWWW, COLOR_TEMP, or our fallback) → kill RGB.
+  // If RGB is set (any non-zero RGB channel or pure RGB mode) → kill whites.
+  // UNKNOWN mode with both at zero → treated as off (both killed).
   if (this->color_interlock_) {
-    auto color_mode = state->remote_values.get_color_mode();
-    if (color_mode == light::ColorMode::COLD_WARM_WHITE) {
+    if (cw > 0.0f || ww > 0.0f) {
+      // Whites are active — this is a white/CCT command
       r = g = b = 0.0f;
-    } else {
+    } else if (r > 0.0f || g > 0.0f || b > 0.0f) {
+      // RGB is active — kill whites and reset fade state
       cw = 0.0f;
       ww = 0.0f;
       this->current_cw_ = 0.0f;
@@ -374,6 +430,7 @@ void WS2805LightOutput::read_target_values_(light::LightState *state, float &r, 
       this->step_cw_ = 0.0f;
       this->step_ww_ = 0.0f;
     }
+    // If both are zero: do nothing (light is off or turning off)
   }
 }
 
