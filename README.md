@@ -81,7 +81,8 @@ light:
 
 You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, `effects`), plus the following WS2805-specific arguments:
 
-* **`pin`** *(Required)*: The GPIO pin your data line is connected to.
+* **`pin`** *(Required)*: The GPIO pin your primary data line is connected to. As of recently, you can also use **`din_pin`** as an alias for this option.
+* **`fdin_pin`** *(Optional)*: Backup data line (DIN2 / FDIN) for WS2805 strips that feature a secondary redundant input pad. This output is perfectly hardware-synchronized with the main DIN line (on supported SoCs like ESP32-S3 via ESP-IDF v5) so the backup line is automatically used if the primary line fails.
 * **`num_leds`** *(Required)*: Total number of LEDs on the strip.
 * **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`. Defaults to `GRBWWCW`.
 * **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
@@ -91,6 +92,24 @@ You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, 
 * **`cct_transition_speed`** *(Optional, time)*: Controls the speed of fading transitions for the white (CCT) channels. Default value is `3s`.
 * **`max_refresh_rate`** *(Optional, time)*: Limits the maximum update rate to prevent RMT timeouts. Defaults to `4ms`.
 * **`dithering`** *(Optional, boolean)*: Enables temporal dithering for the white (CW/WW) channels, reducing stepping/flickering at low brightness or during slow fading. Defaults to `false`. See [docu.md](docu.md) for more details.
+* **`isr_priority`** *(Optional, int)*: Specifies the priority (1-3) of the RMT hardware interrupt. Defaults to `3` (highest C-level priority) to prevent the WiFi/BLE stack from starving the RMT refill and causing white flashes on the strip.
+
+#### Advanced Timing Overrides
+The component uses highly optimized defaults for RMT signal timing that center directly in the WS2805 hardware specifications. However, if you are experiencing issues with custom clone chips, you can manually override the timing using the following properties (in nanoseconds, unless specified):
+* **`bit0_high_ns`** *(Optional, int)*: Default `300`.
+* **`bit0_low_ns`** *(Optional, int)*: Default `800`.
+* **`bit1_high_ns`** *(Optional, int)*: Default `800`.
+* **`bit1_low_ns`** *(Optional, int)*: Default `800`.
+* **`reset_pulse_us`** *(Optional, int)*: Microseconds. Default `300`.
+
+#### Diagnostics API
+If you want to view hardware and memory performance in Home Assistant, you can expose these internal functions via template sensors. Just use the `id` of your light component (e.g., `id(ws2805_zone_1)`):
+* `get_num_leds()`: Number of pixels.
+* `get_frame_bytes()`: Bytes clocked out per frame.
+* `get_rmt_resolution_hz()`: Auto-detected RMT clock tick.
+* `get_last_frame_ms()`: Blocking cost of the last frame.
+* `get_max_refresh_hz()`: Theoretical maximum update rate.
+* `get_tx_error_count()`: Number of RMT buffer drops (should be 0).
 
 ---
 
