@@ -316,7 +316,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
         this->suppressed_cw_ = target_cw;
         this->suppressed_ww_ = target_ww;
         this->effect_whites_captured_ = true;
-      } else if (this->suppressed_cw_ != target_cw || this->suppressed_ww_ != target_ww) {
+      } else if (std::abs(this->suppressed_cw_ - target_cw) > 0.005f || std::abs(this->suppressed_ww_ - target_ww) > 0.005f) {
         this->effect_whites_suppressed_ = false;
       }
 
@@ -380,38 +380,6 @@ void WS2805LightOutput::write_state(light::LightState *state) {
 
 void WS2805LightOutput::read_target_values_(light::LightState *state, float &r, float &g, float &b, float &cw, float &ww) {
   state->remote_values.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
-
-  // Fallback: if HA sent color_temp (mireds) but the ESPHome API layer didn't
-  // populate cold_white_/warm_white_, compute them here from the stored hardware
-  // CCT range (cold_white_temperature_ → warm_white_temperature_).
-  // Linear: cold_white_temperature_ mireds → 100% CW, warm_white_temperature_ mireds → 100% WW.
-  //
-  // Guards:
-  //  - is_on: when the light is off, as_rgbww correctly returns cw=ww=0 but
-  //    get_color_temperature() still holds the stale CCT from when it was on.
-  //    Without this guard the fallback re-enables whites on an off light.
-  //  - color_mode != RGB: never fire in pure RGB mode — the interlock zeros
-  //    CW/WW anyway, but we avoid wasted computation.
-  float ct = state->remote_values.get_color_temperature();
-  auto color_mode = state->remote_values.get_color_mode();
-  if (state->remote_values.is_on() &&
-      ct > 0.0f && cw == 0.0f && ww == 0.0f &&
-      color_mode != light::ColorMode::RGB) {
-    float range = this->warm_white_temperature_ - this->cold_white_temperature_;
-    if (range > 0.0f) {
-      float t = (ct - this->cold_white_temperature_) / range;
-      t = std::clamp(t, 0.0f, 1.0f);
-      float brightness = state->remote_values.get_brightness();
-      if (this->constant_brightness_) {
-        float max_white = std::max(1.0f - t, t);
-        if (max_white > 0.0f) {
-            brightness /= max_white;
-        }
-      }
-      cw = (1.0f - t) * brightness;
-      ww = t * brightness;
-    }
-  }
 
   // Color interlock: whites and RGB cannot be active simultaneously.
   // If whites are set (via CWWW, COLOR_TEMP, or our fallback) → kill RGB.
