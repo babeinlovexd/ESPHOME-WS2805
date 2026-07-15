@@ -81,8 +81,10 @@ class WS2805LightOutput : public light::AddressableLight {
     }
     // A buffer-modifying effect is (re)starting and now owns the RGB buffer.
     // Effects never touch the white (WW/CW) channels — the color view exposes
-    // RGB only — so clear any residual white and reset the CCT fade state.
-    // Otherwise stale warm/cold white would wash out the effect.
+    // RGB only. Suppress any residual white and reset the CCT fade state, but
+    // allow the user to mix CW/WW back in while the effect is running.
+    this->effect_whites_suppressed_ = true;
+    this->effect_whites_captured_ = false;
     this->clear_white_state_();
   }
 
@@ -213,6 +215,10 @@ class WS2805LightOutput : public light::AddressableLight {
   bool constant_brightness_{false};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
+  bool effect_whites_suppressed_{false};
+  bool effect_whites_captured_{false};
+  float suppressed_cw_{0.0f};
+  float suppressed_ww_{0.0f};
 
   // Configurable RMT bit timing (defaults: WS2805 datasheet center values).
   // Tick counts are resolution-dependent; the "@80MHz" notes below are just
