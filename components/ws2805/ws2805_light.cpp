@@ -316,6 +316,16 @@ void WS2805LightOutput::write_state(light::LightState *state) {
         this->suppressed_cw_ = target_cw;
         this->suppressed_ww_ = target_ww;
         this->effect_whites_captured_ = true;
+
+        if (target_cw > 0.0f || target_ww > 0.0f) {
+          auto call = state->make_call();
+          call.set_cold_white_if_supported(0.0f);
+          call.set_warm_white_if_supported(0.0f);
+          call.perform();
+
+          this->suppressed_cw_ = 0.0f;
+          this->suppressed_ww_ = 0.0f;
+        }
       } else if (std::abs(this->suppressed_cw_ - target_cw) > 0.005f || std::abs(this->suppressed_ww_ - target_ww) > 0.005f) {
         this->effect_whites_suppressed_ = false;
       }
