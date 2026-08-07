@@ -51,7 +51,7 @@ light:
     # fdin_pin: GPIO5 # Optional. Backup data line for WS2805 chips with a redundant input pad
     num_leds: 100 # Total number of LEDs on the strip
     # Optional configurations with default values
-    channel_order: GRBWWCW # Optional. Supports RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW. Default: GRBWWCW
+    channel_order: GRBWWCW # Optional. Supports RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW, BRGWWCW, BRGCWWW. Default: GRBWWCW
     color_interlock: false # Optional. Prevents simultaneous maximum brightness of white and RGB. Default: false
     constant_brightness: false # Optional. Prevents artificial brightness throttling. Default: false
     cold_white_color_temperature: 153 mireds # Optional. Color temperature for cold white. Default: 153 mireds
@@ -86,7 +86,7 @@ You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, 
 * **`pin`** *(Required)*: The GPIO pin your primary data line is connected to. As of recently, you can also use **`din_pin`** as an alias for this option.
 * **`fdin_pin`** *(Optional)*: Backup data line (DIN2 / FDIN) for WS2805 strips that feature a secondary redundant input pad. This output is perfectly hardware-synchronized with the main DIN line (on supported SoCs like ESP32-S3 via ESP-IDF v5) so the backup line is automatically used if the primary line fails.
 * **`num_leds`** *(Required)*: Total number of LEDs on the strip.
-* **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`. Defaults to `GRBWWCW`.
+* **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`, `BRGWWCW`, or `BRGCWWW`. Defaults to `GRBWWCW`.
 * **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
 * **`constant_brightness`** *(Optional, boolean)*: Disables the ESPHome internal brightness throttling and behaves like a standard ESPHome RGBWW light (allowing 100% power on all channels). Defaults to `false`.
 * **`cold_white_color_temperature`** *(Optional)*: The color temperature of your cold white LEDs in mireds. Default value is `153 mireds` (~6500K).
