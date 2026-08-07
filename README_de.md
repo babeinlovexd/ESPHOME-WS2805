@@ -51,7 +51,7 @@ light:
     # fdin_pin: GPIO5 # Optional. Backup-Datenleitung für WS2805 Streifen mit redundantem Eingang
     num_leds: 100 # Gesamtzahl der LEDs auf dem Streifen
     # Optionale Konfigurationen mit Standardwerten
-    channel_order: GRBWWCW # Optional. Unterstützt RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW. Standard: GRBWWCW
+    channel_order: GRBWWCW # Optional. Unterstützt RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW, BRGWWCW, BRGCWWW. Standard: GRBWWCW
     color_interlock: false # Optional. Verhindert gleichzeitige maximale Helligkeit von Weiß und RGB. Standard: false
     constant_brightness: false # Optional. Verhindert die künstliche Drosselung der Helligkeit. Standard: false
     cold_white_color_temperature: 153 mireds # Optional. Farbtemperatur Kaltweiß. Standard: 153 mireds
@@ -86,7 +86,7 @@ Du kannst alle Standard-ESPHome-Variablen (wie `name`, `id`, `gamma_correct`, `e
 * **`pin`** *(Erforderlich)*: Der GPIO-Pin, an den deine primäre Datenleitung angeschlossen ist. Seit neuestem kannst du alternativ auch **`din_pin`** dafür verwenden.
 * **`fdin_pin`** *(Optional)*: Backup-Datenleitung (DIN2 / FDIN) für WS2805 Streifen, die über einen zweiten, redundanten Eingang verfügen. Dieses Signal wird perfekt in Hardware mit der Hauptleitung (DIN) synchronisiert (auf unterstützten SoCs wie dem ESP32-S3 via ESP-IDF v5), sodass bei einem Kabelbruch nahtlos die Ersatzleitung einspringt.
 * **`num_leds`** *(Erforderlich)*: Gesamtzahl der LEDs auf dem Streifen.
-* **`channel_order`** *(Optional, string)*: Legt die Reihenfolge der Farbkanäle für den LED-Strip fest. Unterstützt werden `RGBWWCW`, `RGBCWWW`, `GRBWWCW` oder `GRBCWWW`. Standard ist `GRBWWCW`.
+* **`channel_order`** *(Optional, string)*: Legt die Reihenfolge der Farbkanäle für den LED-Strip fest. Unterstützt werden `RGBWWCW`, `RGBCWWW`, `GRBWWCW` oder `GRBCWWW`, `BRGWWCW` oder `BRGCWWW`. Standard ist `GRBWWCW`.
 * **`color_interlock`** *(Optional, Boolean)*: Verhindert, dass die weißen LEDs und die RGB-LEDs gleichzeitig mit voller Kraft leuchten (nützlich für das Netzteil-Management oder thermische Limits). Standard ist `false`.
 * **`constant_brightness`** *(Optional, Boolean)*: Deaktiviert die ESPHome-interne Helligkeitsdrosselung der Kanäle und verhält sich wie eine Standard-ESPHome-RGBWW-Lampe (ermöglicht 100 % Leistung auf allen Kanälen). Standard ist `false`.
 * **`cold_white_color_temperature`** *(Optional)*: Die Farbtemperatur deiner Kaltweiß-LEDs in Mireds. Standardwert ist `153 mireds` (~6500K).
