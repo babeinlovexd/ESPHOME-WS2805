@@ -24,6 +24,8 @@ CHANNEL_ORDERS = {
     "RGBCWWW": (0, 1, 2, 4, 3),
     "GRBWWCW": (1, 0, 2, 3, 4),
     "GRBCWWW": (1, 0, 2, 4, 3),
+    "BRGWWCW": (1, 2, 0, 3, 4),
+    "BRGCWWW": (1, 2, 0, 4, 3),
 }
 
 CODEOWNERS = ["@BabeinlovexD"]
