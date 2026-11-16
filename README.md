@@ -1,133 +1,105 @@
-# 💡 ESPHome WS2805 External Component
-<div align="center">
-  <img src="https://img.shields.io/github/v/release/babeinlovexd/ESPHOME-WS2805?style=for-the-badge&color=2ecc71" alt="Latest Release">
-  <img src="https://img.shields.io/badge/Status-Stable-2ecc71?style=for-the-badge" alt="Status">
-  <img src="https://img.shields.io/badge/ESPHome-Ready-03A9F4?style=for-the-badge&logo=esphome" alt="ESPHome">
-  <img src="https://img.shields.io/badge/ESP--IDF-Ready-E7352C?style=for-the-badge&logo=espressif" alt="ESP-IDF Ready">
-  <img src="https://img.shields.io/badge/Arduino-Ready-00979D?style=for-the-badge&logo=arduino" alt="Arduino Ready">
-  <img src="https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey?style=for-the-badge&logo=creative-commons" alt="License: CC BY-NC-SA 4.0">
-</div>
-<br>
+<p align="center">
+  <a href="https://github.com/babeinlovexd"><img src="https://raw.githubusercontent.com/babeinlovexd/babeinlovexd/main/bxd-github-header.svg" width="520" alt="BxD / BabeinlovexD"></a>
+</p>
 
-🌍 **[Lies dies auf Deutsch](README_de.md)**
+# ESPHome WS2805
 
-This is an external component for ESPHome that provides support for **WS2805** 5-channel (RGB + Warm White + Cold White) LED strips.
+[Deutsch](README_de.md) · [Issues](https://github.com/babeinlovexd/ESPHOME-WS2805/issues) · [Releases](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
 
-ESPHome's built-in `AddressableLight` primarily maps to a maximum of 4 channels (RGBW). Since WS2805 requires 5 channels (40 bits per pixel) for RGBCCT support, this component operates as an `AddressableLight` for RGB effects, while maintaining global control over the W1 and W2 channels.
+External ESPHome component for **WS2805 five-channel RGBCCT LED strips**. RGB effects are addressable; warm and cold white are controlled globally across the strip.
 
-This maps perfectly to the Home Assistant UI, providing correct Addressable RGB effects and global CCT (Color Temperature) control without jumping sliders.
+## Features
 
-### 🔥 What can it DO?
-- **Addressable RGB Effects:** Since the component inherits from `AddressableLight`, you can add and use all Addressable light effects such as `addressable_rainbow`, `addressable_scan`, etc.
-- **Global CCT Control:** The Warm White and Cold White channels are globally set across the entire strip according to your CCT sliders in Home Assistant. This is exactly how tools like WLED manage RGBCCT setups.
-- **Multi-Strip Support (Native RMT):** Uses ESPHome's highly optimized, native `esp32_rmt_led_strip` architecture instead of `NeoPixelBus`. This safely manages RMT channels, interrupt flags, and SRAM, allowing up to 8 parallel instances without `ESP_ERR_INVALID_STATE` limits on modern chips like the ESP32-S3.
-- **Brightness Scaling:** Proper mapping and scaling of the 5 channels relative to overall brightness.
+- ESPHome addressable RGB effects with global white-channel/CCT control.
+- Manual white-channel mixing during effects, with Home Assistant state synchronization.
+- Configurable channel order, white transitions, temporal dithering and color interlock.
+- A custom native ESP32 RMT driver; no NeoPixelBus dependency.
 
----
+## Installation
 
-## 🛠️ Usage in ESPHome
-
-To use this component, you can include it directly from GitHub using the `external_components` block.
-You can define multiple zones/strips running in parallel on the ESP32 (e.g., ESP32-S3) without RMT crashes.
+Add this to your ESPHome device configuration; also configure the device name, network and API as needed:
 
 ```yaml
 esp32:
   board: esp32-s3-devkitc-1
   framework:
-    type: esp-idf # Also compatible with arduino
+    type: esp-idf
 
 external_components:
   - source:
       type: git
       url: https://github.com/babeinlovexd/ESPHOME-WS2805
       ref: main
-    components: [ ws2805 ]
+    components: [ws2805]
 
 light:
   - platform: ws2805
-    id: ws2805_zone_1
-    name: "My WS2805 Strip - Zone 1"
-    pin: GPIO4 # The GPIO pin your primary data line is connected to (din_pin is also valid)
-    # fdin_pin: GPIO5 # Optional. Backup data line for WS2805 chips with a redundant input pad
-    num_leds: 100 # Total number of LEDs on the strip
-    # Optional configurations with default values
-    channel_order: GRBWWCW # Optional. Supports RGBWWCW, RGBCWWW, GRBWWCW, GRBCWWW, BRGWWCW, BRGCWWW. Default: GRBWWCW
-    color_interlock: false # Optional. Prevents simultaneous maximum brightness of white and RGB. Default: false
-    constant_brightness: false # Optional. Prevents artificial brightness throttling. Default: false
-    cold_white_color_temperature: 153 mireds # Optional. Color temperature for cold white. Default: 153 mireds
-    warm_white_color_temperature: 500 mireds # Optional. Color temperature for warm white. Default: 500 mireds
-    cct_transition_speed: 3s # Optional. Speed for CCT transitions. Default: 3s
-    dithering: true # Optional. Temporal dithering for CCT. Default: false
-    max_refresh_rate: 4ms # Optional. Maximum refresh rate. Default: 4ms
-    isr_priority: 3 # Optional. Hardware interrupt priority (1-3). Default: 3
-    gamma_correct: 2.2 # Optional (from ESPHome). Default: 2.2
+    id: ws2805_light
+    name: "WS2805"
+    pin: GPIO4
+    num_leds: 60
+    channel_order: GRBWWCW
+    color_interlock: false
+    constant_brightness: false
+    cct_transition_speed: 3s
+    dithering: false
     effects:
       - addressable_rainbow:
-
-  - platform: ws2805
-    id: ws2805_zone_2
-    name: "My WS2805 Strip - Zone 2"
-    pin: GPIO5
-    num_leds: 100
-
-  - platform: ws2805
-    id: ws2805_zone_3
-    name: "My WS2805 Strip - Zone 3"
-    pin: GPIO6
-    num_leds: 100
+      - addressable_scan:
 ```
 
----
+## Configuration
 
-## ⚙️ Configuration Variables
+| Option | Default / requirement |
+| :--- | :--- |
+| `pin` | Required data GPIO |
+| `num_leds` | Required positive LED count |
+| `channel_order` | `GRBWWCW`; also `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
+| `color_interlock` | `false` |
+| `constant_brightness` | `false` |
+| `cold_white_color_temperature` | `153 mireds` |
+| `warm_white_color_temperature` | `500 mireds` |
+| `cct_transition_speed` | `3s` |
+| `dithering` | `false` |
+| `isr_priority` | `3`, allowed range 1–3 |
+| `fdin_pin` | Optional backup data output for strips with a redundant input |
 
-You can use all standard ESPHome variables (like `name`, `id`, `gamma_correct`, `effects`), plus the following WS2805-specific arguments:
+In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
 
-* **`pin`** *(Required)*: The GPIO pin your primary data line is connected to. As of recently, you can also use **`din_pin`** as an alias for this option.
-* **`fdin_pin`** *(Optional)*: Backup data line (DIN2 / FDIN) for WS2805 strips that feature a secondary redundant input pad. This output is perfectly hardware-synchronized with the main DIN line (on supported SoCs like ESP32-S3 via ESP-IDF v5) so the backup line is automatically used if the primary line fails.
-* **`num_leds`** *(Required)*: Total number of LEDs on the strip.
-* **`channel_order`** *(Optional, string)*: Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`, `BRGWWCW`, or `BRGCWWW`. Defaults to `GRBWWCW`.
-* **`color_interlock`** *(Optional, boolean)*: Prevents white LEDs and RGB LEDs from being at full brightness simultaneously (useful for power supply management or thermal limits). Defaults to `false`.
-* **`constant_brightness`** *(Optional, boolean)*: Disables the ESPHome internal brightness throttling and behaves like a standard ESPHome RGBWW light (allowing 100% power on all channels). Defaults to `false`.
-* **`cold_white_color_temperature`** *(Optional)*: The color temperature of your cold white LEDs in mireds. Default value is `153 mireds` (~6500K).
-* **`warm_white_color_temperature`** *(Optional)*: The color temperature of your warm white LEDs in mireds. Default value is `500 mireds` (~2000K).
-* **`cct_transition_speed`** *(Optional, time)*: Controls the speed of fading transitions for the white (CCT) channels. Default value is `3s`.
-* **`max_refresh_rate`** *(Optional, time)*: Limits the maximum update rate to prevent RMT timeouts. Defaults to `4ms`.
-* **`dithering`** *(Optional, boolean)*: Enables temporal dithering for the white (CW/WW) channels, reducing stepping/flickering at low brightness or during slow fading. Defaults to `false`. See [docu.md](docu.md) for more details.
-* **`isr_priority`** *(Optional, int)*: Specifies the priority (1-3) of the RMT hardware interrupt. Defaults to `3` (highest C-level priority) to prevent the WiFi/BLE stack from starving the RMT refill and causing white flashes on the strip.
+### Multiple strips
 
-#### Advanced Timing Overrides
-The component uses highly optimized defaults for RMT signal timing that center directly in the WS2805 hardware specifications. However, if you are experiencing issues with custom clone chips, you can manually override the timing using the following properties (in nanoseconds, unless specified):
-* **`bit0_high_ns`** *(Optional, int)*: Default `300`.
-* **`bit0_low_ns`** *(Optional, int)*: Default `800`.
-* **`bit1_high_ns`** *(Optional, int)*: Default `800`.
-* **`bit1_low_ns`** *(Optional, int)*: Default `800`.
-* **`reset_pulse_us`** *(Optional, int)*: Microseconds. Default `300`.
+The component's validator permits **8 instances on ESP32**, **4 on ESP32-S2/S3**, and **2 on ESP32-C3/C6**. Other users of RMT and the chosen chip/framework can further constrain the usable resources. Each strip needs its own data GPIO. There is no guarantee of eight independent strips on an S3.
 
-#### Diagnostics API
-If you want to view hardware and memory performance in Home Assistant, you can expose these internal functions via template sensors. Just use the `id` of your light component (e.g., `id(ws2805_zone_1)`):
-* `get_num_leds()`: Number of pixels.
-* `get_frame_bytes()`: Bytes clocked out per frame.
-* `get_rmt_resolution_hz()`: Auto-detected RMT clock tick.
-* `get_last_frame_ms()`: Blocking cost of the last frame.
-* `get_max_refresh_hz()`: Theoretical maximum update rate.
-* `get_tx_error_count()`: Number of RMT buffer drops (should be 0).
+### Timing & diagnostics
 
----
+Advanced timing defaults are `bit0_high_ns: 300`, `bit0_low_ns: 800`, `bit1_high_ns: 800`, `bit1_low_ns: 800` and `reset_pulse_us: 300`. Change them only when the strip's timing requirements call for it.
 
-## ☕ Support this Project
+Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` and `get_tx_error_count()` on the light ID. These are diagnostics, not a hardware compatibility certificate.
 
-If you like this ESPHome component and want to support my work, I'd be absolutely thrilled about a virtual coffee!
+## Examples & troubleshooting
 
-<a href="https://www.paypal.me/babeinlovexd">
-  <img src="https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal" alt="Donate with PayPal">
-</a>
+- [example.yaml](example.yaml) provides a complete example device configuration; [docu.md](docu.md) explains white transitions and dithering.
+- **Wrong colors:** Check `channel_order` against your strip.
+- **White channels behave unexpectedly:** Check color interlock and the manually selected white levels during effects.
+- **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length, RMT allocation and framework build logs.
+- **Compile errors after updating:** Include ESPHome version, board, framework and a minimal YAML example in the issue.
+
+## License
+
+[CC BY-NC-SA 4.0](LICENSE). The existing project license applies; third-party components retain their own licenses.
 
 ---
 
-## 👨‍💻 Developed by
+## Builds and releases
 
-| [<img src="https://avatars.githubusercontent.com/u/43302033?v=4" width="100"><br><sub>**Christopher**</sub>](https://github.com/babeinlovexd) |
-| :---: |
+Version: **0.6.7** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
 
----
+ESPHome CI uses dummy credentials and does not flash devices. Configure your own secrets and pin assignments before deployment.
+
+## Contributing
+
+Questions, bug reports and contributions are welcome. Include version, setup and reproduction steps in an [Issue](https://github.com/babeinlovexd/ESPHOME-WS2805/issues). Please discuss larger changes before a pull request.
+
+Support this hobby project: [PayPal](https://www.paypal.me/babeinlovexd).
+
+[BxD / BabeinlovexD](https://github.com/babeinlovexd) · [Website](https://babeinlovexd.de/)

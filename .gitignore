@@ -3,3 +3,6 @@ venv/
 .esphome/
 __pycache__/
 *.pyc
+
+# Local build verification and CI staging
+release-output/
