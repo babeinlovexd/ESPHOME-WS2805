@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="esphome-ci-") as temp:
         secret_file = path.parent / "secrets.yaml"
         secrets = yaml.safe_load(secret_file.read_text()) if secret_file.exists() else {}
         for name in names:
-            secrets[name] = (base64.b64encode(bytes(32)).decode() if name == "api_encryption_key"
+            secrets[name] = (base64.b64encode(os.urandom(32)).decode() if name == "api_encryption_key"
                              else '"0000000000"' if name == "master_tag_id"
                              else "ci-placeholder-only")
         secret_file.write_text(yaml.safe_dump(secrets), encoding="utf-8")
