@@ -48,6 +48,12 @@ light:
       - addressable_scan:
 ```
 
+## ESPHome compatibility
+
+Version **0.6.8** adds the color-accessor API required by **ESPHome 2026.11.0** while retaining the previous interface for **2026.10.2**. Versions up to 0.6.7 use the previous API and do not compile with 2026.11.0.
+
+The build matrix compiles both pinned ESPHome versions and the latest stable version for **ESP32** and **ESP32-S3**. Native regression tests cover five-byte pixel addressing, all six channel orders, RGB correction, effect data and isolation of both global white channels. See [Issue #59](https://github.com/babeinlovexd/ESPHOME-WS2805/issues/59).
+
 ## Configuration
 
 | Option | Default / requirement |
@@ -92,7 +98,7 @@ Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolu
 
 ## Builds and releases
 
-Version: **0.6.7** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
+Version: **0.6.8** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
 
 ESPHome CI uses dummy credentials and does not flash devices. Configure your own secrets and pin assignments before deployment.
 

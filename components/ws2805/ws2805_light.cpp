@@ -117,6 +117,10 @@ bool WS2805LightOutput::allocate_buffers_() {
     return false;
   }
 
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+  this->color_accessor_.set_buffers(this->buf_, this->effect_data_, this->num_leds_);
+  this->accessor_ = &this->color_accessor_;
+#endif
   return true;
 }
 
@@ -645,6 +649,10 @@ WS2805LightOutput::~WS2805LightOutput() {
 }
 
 void WS2805LightOutput::cleanup_() {
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+  this->accessor_ = &light::NullColorAccessor::instance;
+  this->color_accessor_.set_buffers(nullptr, nullptr, 0);
+#endif
   if (this->buf_) heap_caps_free(this->buf_);
   this->buf_ = nullptr;
   if (this->effect_data_) heap_caps_free(this->effect_data_);

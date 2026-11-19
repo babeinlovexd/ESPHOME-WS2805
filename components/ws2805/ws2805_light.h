@@ -5,6 +5,7 @@
 #include "esphome/components/light/addressable_light.h"
 #include "esphome/components/light/light_traits.h"
 #include "esphome/components/light/light_state.h"
+#include "ws2805_color_accessor.h"
 
 #include <cstring>
 #include <driver/gpio.h>
@@ -41,7 +42,7 @@ struct LedParams {
 class WS2805LightOutput : public light::AddressableLight {
  public:
   WS2805LightOutput(uint16_t num_leds, uint8_t din_pin)
-      : num_leds_(num_leds), din_pin_(din_pin), fdin_pin_(0), buf_(nullptr), effect_data_(nullptr), rmt_buf_(nullptr) {
+      : num_leds_(num_leds), din_pin_(din_pin) {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     this->din_channel_ = nullptr;
     this->din_encoder_ = nullptr;
@@ -109,6 +110,9 @@ class WS2805LightOutput : public light::AddressableLight {
     this->offset_b_ = b;
     this->offset_w1_ = w1;
     this->offset_w2_ = w2;
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+    this->color_accessor_.set_channel_order(r, g, b);
+#endif
   }
   void set_constant_brightness(bool constant_brightness) { this->constant_brightness_ = constant_brightness; }
   void set_fdin_pin(uint8_t pin) { this->fdin_pin_ = pin; }
@@ -168,6 +172,7 @@ class WS2805LightOutput : public light::AddressableLight {
   size_t encode_buffer_();
   bool encode_and_transmit_();
 
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
   light::ESPColorView get_view_internal(int32_t index) const override {
     if (this->buf_ == nullptr) {
       return light::ESPColorView(&this->dummy_view_[0], &this->dummy_view_[1], &this->dummy_view_[2], nullptr,
@@ -184,6 +189,7 @@ class WS2805LightOutput : public light::AddressableLight {
         &this->correction_
     );
   }
+#endif
 
   static constexpr size_t BYTES_PER_LED = 5;  // WS2805 = R, G, B, W1, W2
 
@@ -231,6 +237,9 @@ class WS2805LightOutput : public light::AddressableLight {
   uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
 
   uint8_t *buf_{nullptr};
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
+  WS2805ColorAccessor color_accessor_{this->correction_};
+#endif
   LedParams params_;
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   rmt_channel_handle_t din_channel_{nullptr};

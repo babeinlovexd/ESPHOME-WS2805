@@ -1,0 +1,29 @@
+esphome:
+  name: ws2805-issue59
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ws2805]
+
+light:
+  - platform: ws2805
+    id: kast_light
+    name: "sk kast Light"
+    pin: GPIO18
+    num_leds: 50
+    color_interlock: false
+    cold_white_color_temperature: 153 mireds
+    warm_white_color_temperature: 500 mireds
+    gamma_correct: 2.2
+    effects:
+      - addressable_rainbow:
+      - addressable_scan:
