@@ -117,6 +117,8 @@ Die [Timing-Vorgaben des Herstellers](https://dl.lightstream.pro/PDF/IC/WS2805_E
 
 Bitzeiten, die sich beim gewählten RMT-Takt nicht darstellen lassen, werden mit einer Fehlermeldung abgelehnt. Sehr lange Reset-Pulse werden auf die Hardwaregrenze begrenzt; die Anpassung wird im Log gemeldet.
 
+> **Test-Hinweis:** Ein OTA-Flash kann die ersten Chips eines WS2805-Streifens in ihrem alten Zustand halten. Nach einer Änderung von Timing oder Firmware den Streifen **hart per Strom aus- und einschalten**, bevor das Ergebnis beurteilt wird.
+
 Template-Sensoren können über die separate `output_id` (oben beispielsweise `ws2805_output`) die Methoden `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` und `get_tx_error_count()` aufrufen. Die Licht-`id` bezeichnet den Lichtzustand und nicht den Treiberausgang. Siehe das [Diagnosebeispiel](docu.md#diagnostics). Die Werte belegen weder die Signalqualität noch eine bestimmte Hardwarekompatibilität.
 
 ## Beispiele & Fehlersuche

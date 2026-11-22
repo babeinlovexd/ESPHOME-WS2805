@@ -70,6 +70,8 @@ RMT durations are rounded to hardware ticks. With these defaults, a zero bit tak
 
 Change timings only when your strip requires it. Bit timings that cannot be represented at the selected RMT clock are rejected with an error message. Very long reset pulses are capped by the hardware limit, with the adjustment reported in the log.
 
+> **Testing note:** OTA-flashing a WS2805 strip can leave the first chip(s) latched in their old state. After changing timing or firmware, **hard power-cycle the strip** before judging the result.
+
 ## Diagnostics
 
 The diagnostic getters belong to the light **output**, identified by `output_id`. The ordinary light `id` identifies the ESPHome light state instead.
