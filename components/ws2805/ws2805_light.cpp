@@ -358,6 +358,25 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     this->suppressed_ww_ = 0.0f;
   }
 
+  // Remap unquantized targets, then let the existing white transition and
+  // dithering operate on those targets. Scaling rounded bytes would both lose
+  // dim colors and amplify their rounding error. Effects keep their own RGB data.
+  const bool sparse_active = this->sparse_dimming_ && !this->is_effect_active();
+  if (sparse_active) {
+    const auto plan = make_sparse_dimming_plan(state->remote_values.get_brightness(), this->sparse_max_step_);
+    if (target_r > 0.0f || target_g > 0.0f || target_b > 0.0f || target_ww > 0.0f || target_cw > 0.0f)
+      this->sparse_step_ = plan.step;
+    // For an off/zero command keep the old mask until the white fade finishes;
+    // changing it to step 1 here would briefly light previously dark pixels.
+    target_r = plan.apply(target_r);
+    target_g = plan.apply(target_g);
+    target_b = plan.apply(target_b);
+    target_ww = plan.apply(target_ww);
+    target_cw = plan.apply(target_cw);
+  } else {
+    this->sparse_step_ = 1;
+  }
+
   // Elapsed time since the previous frame drives the hardware-side white fade.
   // Clamp to 0.1s so a long idle gap can't produce a single huge step (which
   // would snap instead of fade) the next time the light changes.
@@ -390,7 +409,11 @@ void WS2805LightOutput::write_state(light::LightState *state) {
       p[this->offset_w2_] = cw;
     }
   } else {
-    this->fill_led_buffer_(r8, g8, b8, ww, cw);
+    if (sparse_active) {
+      this->sparse_fill_(r8, g8, b8, ww, cw, this->sparse_step_);
+    } else {
+      this->fill_led_buffer_(r8, g8, b8, ww, cw);
+    }
   }
 
   this->mark_shown_();
@@ -523,6 +546,31 @@ void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_
     p[this->offset_b_] = b;
     p[this->offset_w1_] = ww;
     p[this->offset_w2_] = cw;
+  }
+}
+
+void WS2805LightOutput::sparse_fill_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step) {
+  // Static sparse pattern: light every `step`-th LED, centered on the strip so
+  // the leading and trailing dark margins are balanced instead of piling the
+  // leftover dark LEDs at the tail.
+  int n = this->size();
+  int lit_count = (n - 1) / step + 1;
+  int offset = (n - 1 - (lit_count - 1) * step) / 2;
+  for (int i = 0; i < n; i++) {
+    uint8_t *p = this->buf_ + BYTES_PER_LED * i;
+    if (i >= offset && (i - offset) % step == 0) {
+      p[this->offset_r_] = r;
+      p[this->offset_g_] = g;
+      p[this->offset_b_] = b;
+      p[this->offset_w1_] = ww;
+      p[this->offset_w2_] = cw;
+    } else {
+      p[this->offset_r_] = 0;
+      p[this->offset_g_] = 0;
+      p[this->offset_b_] = 0;
+      p[this->offset_w1_] = 0;
+      p[this->offset_w2_] = 0;
+    }
   }
 }
 

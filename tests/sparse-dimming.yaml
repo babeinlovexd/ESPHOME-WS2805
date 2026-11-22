@@ -1,0 +1,24 @@
+esphome:
+  name: ws2805-sparse-dimming
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ws2805]
+
+light:
+  - platform: ws2805
+    id: sparse_light
+    name: "Sparse Dimming Test"
+    pin: GPIO18
+    num_leds: 50
+    sparse_dimming: true
+    sparse_max_step: 8

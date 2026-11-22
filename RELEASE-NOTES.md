@@ -1,3 +1,13 @@
+# ESPHome WS2805 v0.6.10
+
+- Add optional sparse dimming from PR #61 (disabled by default): low brightness lights a centered subset of pixels.
+- Fix the brightness discontinuity at the sparse/dense boundary and retain floating-point channel values until final quantization.
+- Remap white targets before their hardware fade/dithering; preserve the sparse mask when fading to off.
+- Keep addressable effects and existing configurations on their previous path. No additional large frame buffer is allocated.
+- Test fractional brightness, all allowed spacing values, all six channel orders and white fades with native regression tests.
+
+---
+
 # ESPHome WS2805 v0.6.9
 
 - Add optional `rmt_preencode: true` to reduce RMT refill interrupt work and address flicker observed on classic ESP32 devices.

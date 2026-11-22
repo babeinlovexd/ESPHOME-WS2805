@@ -1,0 +1,168 @@
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <iostream>
+#include <vector>
+#include "ws2805_sparse_dimming.h"
+
+// Host adapters for ESPHome state and hardware I/O. The driver methods below
+// are inserted verbatim from ws2805_light.cpp; firmware CI uses real headers.
+static int64_t test_clock = 1000000;
+int64_t esp_timer_get_time() { return test_clock; }
+#define ESP_LOGD(...) do {} while (0)
+
+namespace esphome {
+namespace light {
+struct Values {
+  float brightness{1.0f};
+  bool on{true};
+  std::array<float, 5> color{{1, 0, 0, 0, 0}};  // R,G,B,CW,WW
+  float get_brightness() const { return brightness; }
+  void as_rgbww(float *r, float *g, float *b, float *cw, float *ww, bool) const {
+    const float level = on ? brightness : 0.0f;
+    *r=color[0]*level; *g=color[1]*level; *b=color[2]*level;
+    *cw=color[3]*level; *ww=color[4]*level;
+  }
+};
+struct LightCall {
+  Values *values;
+  void set_cold_white_if_supported(float v) { values->color[3]=v; }
+  void set_warm_white_if_supported(float v) { values->color[4]=v; }
+  void perform() {}
+};
+struct LightState {
+  Values remote_values;
+  LightCall make_call() { return {&remote_values}; }
+};
+}
+namespace ws2805 {
+class WS2805LightOutput {
+ public:
+  static constexpr size_t BYTES_PER_LED=5;
+  int pixels{42};
+  std::vector<uint8_t> data=std::vector<uint8_t>(42*5+16, 0xCD);
+  uint8_t *buf_{data.data()};
+  uint8_t offset_r_{0},offset_g_{1},offset_b_{2},offset_w1_{3},offset_w2_{4};
+  bool setup_complete_{true},effect{false};
+  bool is_effect_active() const { return effect; }
+  int size() const { return pixels; }
+  void mark_shown_() {}
+  bool encode_and_transmit_() { return true; }
+  void status_clear_warning() {}
+  void schedule_show() {}
+  // Actual field defaults and the state-processing methods are read from the
+  // production class, so changing its default cannot silently evade this test.
+@@FIELDS@@
+  void write_state(light::LightState *);
+  void read_target_values_(light::LightState *,float &,float &,float &,float &,float &);
+  void update_white_transition_(float,float,float);
+  static void step_channel_(float &,float,float,float);
+  void compute_white_bytes_(bool,uint8_t &,uint8_t &);
+  uint8_t calculate_dither_(float,float &);
+  void clear_white_state_();
+  void fill_led_buffer_(uint8_t,uint8_t,uint8_t,uint8_t,uint8_t);
+  void sparse_fill_(uint8_t,uint8_t,uint8_t,uint8_t,uint8_t,uint8_t);
+};
+@@METHODS@@
+}
+}
+using esphome::ws2805::WS2805LightOutput;
+using esphome::light::LightState;
+
+void tick(WS2805LightOutput &output, LightState &state) {
+  test_clock += 100000;
+  output.write_state(&state);
+  for (size_t i=output.pixels*5; i<output.data.size(); i++) assert(output.data[i]==0xCD);
+}
+int main() {
+  LightState state;
+  WS2805LightOutput defaults;
+  assert(!defaults.sparse_dimming_ && defaults.sparse_max_step_==8 && defaults.sparse_step_==1);
+  defaults.transition_speed_=0;
+  state.remote_values.brightness=8.1f/255.0f;
+  tick(defaults,state);
+  for(int i=0;i<42;i++) assert(defaults.data[i*5]==8);
+
+  for (int channel=0;channel<5;channel++) {
+    WS2805LightOutput output; output.sparse_dimming_=true; output.transition_speed_=0;
+    state.remote_values.color.fill(0); state.remote_values.color[channel]=1;
+    state.remote_values.on=true;
+    // Core state exposes CW before WW, while the physical default offsets are WW then CW.
+    const int offset=channel<3?channel:(channel==3?4:3);
+    for(float level:{0.25f,0.5f,1.0f,8.0f,8.1f,9.0f,255.0f}) {
+      state.remote_values.brightness=level/255.0f; tick(output,state);
+      assert(output.data[offset]>0);
+      if(level<=8.1f) assert(output.data[offset]==1);
+      for(int i=0;i<42;i++)for(int c=0;c<5;c++)if(c!=offset)assert(output.data[i*5+c]==0);
+    }
+    state.remote_values.on=false; tick(output,state);
+    for(int i=0;i<42*5;i++)assert(output.data[i]==0);
+  }
+
+  // White ramps use the remapped target and keep their mask when brightness is
+  // explicitly changed to zero. No previously dark pixel may flash during off.
+  for (bool dither:{false,true}) for(int white:{3,4}) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.dithering_=dither;
+    output.transition_speed_=1;
+    state.remote_values.color.fill(0); state.remote_values.color[white]=1;
+    state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
+    for(int frame=0;frame<15;frame++)tick(output,state);
+    const auto mask=output.data; assert(output.sparse_step_==8);
+    const int offset=white==3?4:3;
+    assert(output.data[offset]==1);
+    state.remote_values.brightness=0;
+    for(int frame=0;frame<15;frame++) {
+      tick(output,state);assert(output.sparse_step_==8);
+      for(int i=0;i<42;i++)if(mask[i*5+offset]==0)assert(output.data[i*5+offset]==0);
+    }
+    for(int i=0;i<42*5;i++)assert(output.data[i]==0);
+    assert(output.current_cw_==0.0f&&output.current_ww_==0.0f);
+  }
+
+  // Active addressable effects own RGB pixels; sparse dimming must not erase,
+  // rescale or mask those effect pixels or their global manually mixed whites.
+  WS2805LightOutput effect;effect.sparse_dimming_=true;effect.effect=true;effect.transition_speed_=0;
+  std::fill(effect.data.begin(),effect.data.begin()+42*5,uint8_t(77));
+  state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
+  state.remote_values.color={{0,0,0,1,1}};
+  tick(effect,state);
+  assert(effect.sparse_step_==1);
+  for(int i=0;i<42;i++) {
+    for(int c=0;c<3;c++) assert(effect.data[i*5+c]==77);
+    assert(effect.data[i*5+3]==1&&effect.data[i*5+4]==1);
+  }
+  for(bool sparse:{false,true}) {
+    WS2805LightOutput interlock;interlock.sparse_dimming_=sparse;
+    interlock.color_interlock_=true;interlock.transition_speed_=0;
+    state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
+    state.remote_values.color={{1,0,0,1,0}};
+    tick(interlock,state);
+    for(int i=0;i<42;i++)assert(interlock.data[i*5]==0);
+    assert(interlock.data[4]==1);
+    state.remote_values.color={{1,0,0,0,0}};
+    tick(interlock,state);
+    assert(interlock.data[0]==1);
+    for(int i=0;i<42;i++)assert(interlock.data[i*5+3]==0&&interlock.data[i*5+4]==0);
+  }
+  const std::array<std::array<uint8_t,5>,6> orders{{
+    {{0,1,2,3,4}},{{0,1,2,4,3}},{{1,0,2,3,4}},{{1,0,2,4,3}},{{1,2,0,3,4}},{{1,2,0,4,3}}
+  }};
+  for(const auto &order:orders)for(int pixels:{1,2,7,22,42,50,1000})for(int spacing=2;spacing<=32;spacing++) {
+    WS2805LightOutput output;output.pixels=pixels;
+    output.data.assign(pixels*5+16,0xCD);output.buf_=output.data.data();
+    output.offset_r_=order[0];output.offset_g_=order[1];output.offset_b_=order[2];
+    output.offset_w1_=order[3];output.offset_w2_=order[4];
+    output.sparse_fill_(1,2,3,4,5,uint8_t(spacing));int lit=0;
+    for(int i=0;i<pixels;i++) {
+      const auto*p=output.data.data()+i*5;
+      if(p[0]) {lit++;for(int c=0;c<5;c++)assert(p[order[c]]==c+1);}
+      else for(int c=0;c<5;c++)assert(p[c]==0);
+    }
+    assert(lit==(pixels-1)/spacing+1);
+    for(size_t i=pixels*5;i<output.data.size();i++)assert(output.data[i]==0xCD);
+  }
+  std::cout<<"Sparse state: defaults, five channels, white fade/dithering, zero/off, effects and guards passed\n";
+}

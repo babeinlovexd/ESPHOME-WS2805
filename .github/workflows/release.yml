@@ -43,6 +43,8 @@ jobs:
             config: tests/test.yaml
           - name: ESP32 (pre-encoding enabled)
             config: tests/rmt-preencode.yaml
+          - name: ESP32 (sparse dimming)
+            config: tests/sparse-dimming.yaml
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-python@v7
@@ -72,6 +74,8 @@ jobs:
         python-version: '3.12'
     - run: python -m pip install pytest
     - run: python -m pytest -q tests/ws2805/test_light.py
+    - name: Check sparse curve, white fades and off transitions
+      run: python tests/ws2805/run_sparse_tests.py
     - name: Check RGB access, white isolation and buffer lifecycle
       run: |
         g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
