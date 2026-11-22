@@ -125,6 +125,8 @@ The [manufacturer's timing specification](https://dl.lightstream.pro/PDF/IC/WS28
 
 Bit timings that cannot be represented at the selected RMT clock are rejected with an error message. Very long reset pulses are capped by the hardware limit, with the adjustment reported in the log.
 
+> **Testing note:** OTA-flashing a WS2805 strip can leave the first chip(s) latched in their old state. After changing timing or firmware, **hard power-cycle the strip** before judging the result.
+
 Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` and `get_tx_error_count()` through the separate `output_id` (for example, `ws2805_output` above). The light `id` identifies the light state rather than the driver output. See the [diagnostic example](docu.md#diagnostics). These values do not certify signal quality or hardware compatibility.
 
 ## Examples & troubleshooting
