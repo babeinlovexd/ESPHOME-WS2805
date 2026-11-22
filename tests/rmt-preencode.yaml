@@ -1,5 +1,5 @@
 esphome:
-  name: ws2805-rmt-simple
+  name: ws2805-rmt-preencode
 
 esp32:
   board: esp32dev
@@ -15,7 +15,7 @@ external_components:
 light:
   - platform: ws2805
     id: ws2805_light
-    name: "WS2805 Simple Encoder"
+    name: "WS2805 Pre-encoded Output"
     pin: GPIO18
     num_leds: 1
-    rmt_encoder: simple
+    rmt_preencode: true

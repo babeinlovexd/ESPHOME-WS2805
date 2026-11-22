@@ -527,7 +527,7 @@ void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_
 }
 
 // Encode buf_ into rmt_buf_. Returns the length to hand to the transmit call:
-//   simple encoder (5.3+, rmt_encoder: simple) → byte count
+//   simple encoder (5.3+, rmt_preencode: false) → byte count
 //   copy encoder (5.x)                        → symbol byte count
 //   legacy (4.x)                              → item count
 size_t WS2805LightOutput::encode_buffer_() {
@@ -633,9 +633,9 @@ bool WS2805LightOutput::encode_and_transmit_() {
   size_t len = this->encode_buffer_();
   // Launch both non-blocking so they overlap as closely as the driver allows,
   // then wait for both to finish.
-  rmt_write_items(this->din_channel_, this->rmt_buf_, len, false);
+  rmt_write_items(this->din_channel_, reinterpret_cast<RmtSymbol *>(this->rmt_buf_), len, false);
   if (this->fdin_channel_ < RMT_CHANNEL_MAX)
-    rmt_write_items(this->fdin_channel_, this->rmt_buf_, len, false);
+    rmt_write_items(this->fdin_channel_, reinterpret_cast<RmtSymbol *>(this->rmt_buf_), len, false);
   rmt_wait_tx_done(this->din_channel_, pdMS_TO_TICKS(timeout_ms));
   if (this->fdin_channel_ < RMT_CHANNEL_MAX)
     rmt_wait_tx_done(this->fdin_channel_, pdMS_TO_TICKS(timeout_ms));

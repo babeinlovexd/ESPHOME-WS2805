@@ -1,12 +1,10 @@
-# ESPHome WS2805 (unreleased)
+# ESPHome WS2805 v0.6.9
 
-- New `rmt_encoder` option (default `copy`). `copy` pre-expands symbols and
-  memcpy's them in the RMT refill ISR — robust, and avoids underruns on the
-  no-DMA classic ESP32. `simple` expands on-the-fly (RAM-efficient for large
-  strips) but can underrun without RMT DMA. `simple` requires ESP-IDF 5.3+.
-- Fixes intermittent flicker and wrong first-LED colors caused by the `simple`
-  encoder underrunning the no-DMA RMT buffer under WiFi/BLE contention.
-- CI compiles both encoder paths.
+- Add optional `rmt_preencode: true` to reduce RMT refill interrupt work and address flicker observed on classic ESP32 devices.
+- Default `false` preserves the existing RAM-efficient ESP-IDF 5.3+ path. Older frameworks retain their existing pre-expanded path.
+- Document internal RAM requirements for large strips and multiple outputs.
+- Fix legacy ESP-IDF 4 transmit buffer pointer types for DIN and FDIN.
+- CI compiles both default and opt-in paths.
 
 ---
 

@@ -68,24 +68,22 @@ The build matrix compiles both pinned ESPHome versions and the latest stable ver
 | `cct_transition_speed` | `3s` |
 | `dithering` | `false` |
 | `isr_priority` | `3`, allowed range 1–3 |
-| `rmt_encoder` | `copy`; `simple` opts into on-the-fly (RAM-efficient) encoding |
+| `rmt_preencode` | `false`; set `true` to pre-expand transmission symbols |
 | `fdin_pin` | Optional backup data output for strips with a redundant input |
 
 In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
 
-### RMT encoder (speed vs RAM)
+### Optional pre-encoding
 
-`rmt_encoder` selects how LED bytes are turned into RMT symbols:
+Existing configurations keep their RAM-efficient transmission path on ESP-IDF 5.3+. If a classic ESP32 flickers or shows incorrect first LEDs, try:
 
-- `copy` (default) — pre-expands the symbols up front and memcpy's them in the
-  RMT refill ISR. This is the fast, robust choice; it avoids underruns on the
-  classic ESP32 (no RMT DMA) at the cost of a larger frame buffer.
-- `simple` — expands bytes on-the-fly, keeping the frame buffer ~32× smaller
-  (useful for very large strips). On targets without RMT DMA it can underrun
-  under WiFi/BLE contention and cause flicker or wrong first LEDs, so prefer
-  `copy` unless RAM is the constraint.
+```yaml
+    rmt_preencode: true
+```
 
-`simple` requires ESP-IDF 5.3+; older frameworks fall back to `copy`.
+The default is `false`. Setting `true` prepares all RMT symbols before transmission, reducing work in the refill interrupt. This can reduce underruns, but does not guarantee glitch-free operation under all loads.
+
+**Memory:** the three data buffers together require approximately `11 × num_leds` bytes with `false`, versus `166 × num_leds + 4` bytes with `true` (11 kB versus 166 kB at 1,000 LEDs). The larger buffer requires contiguous internal RAM, including on boards with PSRAM. Use the default for large strips or multiple outputs unless sufficient internal RAM is available. ESP-IDF below 5.3 always uses pre-expanded symbols, as before; the option does not change that older path.
 
 ### Multiple strips
 
@@ -103,7 +101,7 @@ Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolu
 - **Wrong colors:** Check `channel_order` against your strip.
 - **White channels behave unexpectedly:** Check color interlock and the manually selected white levels during effects.
 - **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length, RMT allocation and framework build logs.
-- **Flicker or wrong first LEDs:** On the classic ESP32 (no RMT DMA) use the default `rmt_encoder: copy`; `simple` can underrun there.
+- **Flicker or wrong first LEDs:** On classic ESP32, try `rmt_preencode: true` if sufficient internal RAM is available.
 - **Compile errors after updating:** Include ESPHome version, board, framework and a minimal YAML example in the issue.
 
 ## License
@@ -114,7 +112,7 @@ Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolu
 
 ## Builds and releases
 
-Version: **0.6.8** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
+Version: **0.6.9** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
 
 ESPHome CI uses dummy credentials and does not flash devices. Configure your own secrets and pin assignments before deployment.
 

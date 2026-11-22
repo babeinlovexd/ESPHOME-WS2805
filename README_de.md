@@ -59,6 +59,7 @@ Die Build-Matrix kompiliert beide festgelegten ESPHome-Versionen sowie die neues
 | Option | Standard / Voraussetzung |
 | :--- | :--- |
 | `pin` | Erforderlicher Daten-GPIO |
+| `rmt_preencode` | `false`; `true` bereitet die Sendesymbole vorab auf |
 | `num_leds` | Erforderliche positive LED-Anzahl |
 | `channel_order` | `GRBWWCW`; außerdem `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
 | `color_interlock` | `false` |
@@ -98,7 +99,7 @@ Template-Sensoren können über die Licht-ID `get_num_leds()`, `get_frame_bytes(
 
 ## Builds und Releases
 
-Version: **0.6.8** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) prüft Pushes und Pull Requests. Ein Tag passend zu `v` + `VERSION` veröffentlicht das Release erst nach erfolgreichen Jobs; manuelle Läufe liefern Build-Artefakte. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
+Version: **0.6.9** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) prüft Pushes und Pull Requests. Ein Tag passend zu `v` + `VERSION` veröffentlicht das Release erst nach erfolgreichen Jobs; manuelle Läufe liefern Build-Artefakte. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
 
 ESPHome-CI verwendet Platzhalter-Zugangsdaten und flasht keine Geräte. Vor dem Einsatz eigene Secrets und Pinbelegung prüfen.
 
@@ -109,3 +110,9 @@ Fragen, Fehlerberichte und Beiträge sind willkommen. Nenne Version, Aufbau und 
 Dieses Hobbyprojekt unterstützen: [PayPal](https://www.paypal.me/babeinlovexd).
 
 [BxD / BabeinlovexD](https://github.com/babeinlovexd) · [Website](https://babeinlovexd.de/)
+
+## Optionale Vorberechnung der Sendesymbole
+
+Standardmäßig bleibt `rmt_preencode: false`: Bestehende Konfigurationen behalten unter ESP-IDF ab 5.3 ihren bisherigen sparsamen Speicherbedarf. Bei Flackern oder falschen ersten LEDs auf klassischen ESP32 kann im Licht-Eintrag `rmt_preencode: true` helfen. Das entlastet die Nachfüll-Interrupts, ist aber keine Garantie gegen jede Übertragungsstörung.
+
+Die drei Datenpuffer benötigen mit `false` etwa `11 × num_leds` Bytes, mit `true` dagegen `166 × num_leds + 4` Bytes: bei 1.000 LEDs etwa 11 kB statt 166 kB. Dafür ist zusammenhängender interner RAM erforderlich; vorhandener PSRAM ersetzt diesen nicht. Bei langen oder mehreren Streifen den Standard beibehalten, sofern nicht genügend interner RAM frei ist. Unter ESP-IDF vor 5.3 werden die Symbole wie bisher immer vorab berechnet.

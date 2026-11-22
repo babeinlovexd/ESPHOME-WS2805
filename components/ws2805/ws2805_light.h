@@ -220,7 +220,7 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
   bool dithering_{false};
   bool constant_brightness_{false};
-  bool use_simple_encoder_{false};  // rmt_encoder: simple (RAM-efficient) vs copy (default, robust refill)
+  bool use_simple_encoder_{true};  // rmt_preencode defaults to false: preserve RAM-efficient encoding
   float error_cw_{0.0f};
   float error_ww_{0.0f};
   bool effect_whites_suppressed_{false};
