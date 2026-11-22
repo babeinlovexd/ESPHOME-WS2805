@@ -103,13 +103,13 @@ void tick(WS2805LightOutput &output, LightState &state) {
 int main() {
   LightState state;
   WS2805LightOutput defaults;
-  assert(!defaults.sparse_dimming_ && defaults.sparse_max_step_==8 && defaults.sparse_step_==1 && defaults.sparse_floor_pwm_==2);
+  assert(!defaults.sparse_dimming_ && defaults.sparse_max_step_==8 && defaults.sparse_step_==1);
   defaults.transition_speed_=0;
   state.remote_values.brightness=8.1f/255.0f;
   tick(defaults,state);
   for(int i=0;i<42;i++) assert(defaults.data[i*5]==8);
 
-  // Fixed mixed colors must not alternate between codes 2 and 1 as global
+  // Fixed mixed colors must not alternate between codes 1 and 0 as global
   // brightness varies. Exercise the actual write_state path in every channel.
   for (int channel=0;channel<5;channel++) for(bool constant:{false,true}) {
     WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
@@ -122,7 +122,7 @@ int main() {
       const auto original=state.remote_values;
       tick(output,state);
       const int code=output.data[offset];
-      assert(code>=previous && code==2);previous=code;
+      assert(code>=previous && code==1);previous=code;
       assert(state.remote_values.brightness==original.brightness && state.remote_values.color==original.color);
     }
   }
@@ -136,21 +136,20 @@ int main() {
     for(float level:{0.25f,0.5f,1.0f,8.0f,8.1f,9.0f,255.0f}) {
       state.remote_values.brightness=level/255.0f; tick(output,state);
       assert(output.data[offset]>0);
-      if(level<=8.1f) assert(output.data[offset]==2);
+      if(level<=8.1f) assert(output.data[offset]==1);
       for(int i=0;i<42;i++)for(int c=0;c<5;c++)if(c!=offset)assert(output.data[i*5+c]==0);
     }
     state.remote_values.on=false; tick(output,state);
     for(int i=0;i<42*5;i++)assert(output.data[i]==0);
   }
 
-  // Check all five channels at configurable floor extremes and both color modes.
-  for(uint8_t floor:std::array<uint8_t,4>{{1,2,32,255}})for(int channel=0;channel<5;channel++) {
-    WS2805LightOutput output;output.sparse_dimming_=true;output.sparse_floor_pwm_=floor;
-    output.transition_speed_=0;
+  // All five channels land on the fixed PWM 1 floor.
+  for(int channel=0;channel<5;channel++) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
     state.remote_values.color.fill(0);state.remote_values.color[channel]=1;
     state.remote_values.on=true;state.remote_values.brightness=0.5f/255.0f;
     tick(output,state);
-    assert(output.data[channel<3?channel:channel==3?4:3]==floor);
+    assert(output.data[channel<3?channel:channel==3?4:3]==1);
   }
   for(int mode:{0,1,2,3})for(bool constant:{false,true}) {
     WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
@@ -205,7 +204,7 @@ int main() {
     for(int frame=0;frame<15;frame++)tick(output,state);
     const auto mask=output.data; assert(output.sparse_step_==8);
     const int offset=white==3?4:3;
-    assert(output.data[offset]==2);
+    assert(output.data[offset]==1);
     state.remote_values.brightness=0;
     for(int frame=0;frame<15;frame++) {
       tick(output,state);assert(output.sparse_step_==8);
@@ -234,10 +233,10 @@ int main() {
     state.remote_values.color={{1,0,0,1,0}};
     tick(interlock,state);
     for(int i=0;i<42;i++)assert(interlock.data[i*5]==0);
-    assert(interlock.data[4]==(sparse?2:1));
+    assert(interlock.data[4]==1);
     state.remote_values.color={{1,0,0,0,0}};
     tick(interlock,state);
-    assert(interlock.data[0]==(sparse?2:1));
+    assert(interlock.data[0]==1);
     for(int i=0;i<42;i++)assert(interlock.data[i*5+3]==0&&interlock.data[i*5+4]==0);
   }
   const std::array<std::array<uint8_t,5>,6> orders{{

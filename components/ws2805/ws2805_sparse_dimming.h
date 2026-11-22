@@ -24,10 +24,12 @@ struct SparseDimmingPlan {
   }
 };
 
-inline SparseDimmingPlan make_sparse_dimming_plan(float brightness, uint8_t max_step, uint8_t floor_pwm) {
+inline SparseDimmingPlan make_sparse_dimming_plan(float brightness, uint8_t max_step) {
   brightness = std::max(0.0f, std::min(brightness, 1.0f));
   max_step = std::max(uint8_t(2), std::min(max_step, uint8_t(32)));
-  floor_pwm = std::max(uint8_t(1), std::min(floor_pwm, uint8_t(255)));
+  // The sparse floor is always PWM 1 (the minimum nonzero code). Correct bit
+  // timing makes PWM 1 light reliably, so no configurable floor is needed.
+  constexpr uint8_t floor_pwm = 1;
   if (brightness <= 0.0f)
     return {0.0f, 0.0f, max_step};
   if (brightness >= 1.0f)
