@@ -1,3 +1,15 @@
+# ESPHome WS2805 (unreleased)
+
+- New `rmt_encoder` option (default `copy`). `copy` pre-expands symbols and
+  memcpy's them in the RMT refill ISR — robust, and avoids underruns on the
+  no-DMA classic ESP32. `simple` expands on-the-fly (RAM-efficient for large
+  strips) but can underrun without RMT DMA. `simple` requires ESP-IDF 5.3+.
+- Fixes intermittent flicker and wrong first-LED colors caused by the `simple`
+  encoder underrunning the no-DMA RMT buffer under WiFi/BLE contention.
+- CI compiles both encoder paths.
+
+---
+
 # ESPHome WS2805 v0.6.8
 
 - Kompatibilität mit ESPHome 2026.11.0: neuer ESPColorAccessor für das WS2805-Fünf-Byte-Format. RGB-Effekte greifen ausschließlich auf RGB und ihre separaten Effektdaten zu; WW/CW bleiben global gesteuert.

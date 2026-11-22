@@ -68,9 +68,24 @@ The build matrix compiles both pinned ESPHome versions and the latest stable ver
 | `cct_transition_speed` | `3s` |
 | `dithering` | `false` |
 | `isr_priority` | `3`, allowed range 1–3 |
+| `rmt_encoder` | `copy`; `simple` opts into on-the-fly (RAM-efficient) encoding |
 | `fdin_pin` | Optional backup data output for strips with a redundant input |
 
 In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
+
+### RMT encoder (speed vs RAM)
+
+`rmt_encoder` selects how LED bytes are turned into RMT symbols:
+
+- `copy` (default) — pre-expands the symbols up front and memcpy's them in the
+  RMT refill ISR. This is the fast, robust choice; it avoids underruns on the
+  classic ESP32 (no RMT DMA) at the cost of a larger frame buffer.
+- `simple` — expands bytes on-the-fly, keeping the frame buffer ~32× smaller
+  (useful for very large strips). On targets without RMT DMA it can underrun
+  under WiFi/BLE contention and cause flicker or wrong first LEDs, so prefer
+  `copy` unless RAM is the constraint.
+
+`simple` requires ESP-IDF 5.3+; older frameworks fall back to `copy`.
 
 ### Multiple strips
 
@@ -88,6 +103,7 @@ Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolu
 - **Wrong colors:** Check `channel_order` against your strip.
 - **White channels behave unexpectedly:** Check color interlock and the manually selected white levels during effects.
 - **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length, RMT allocation and framework build logs.
+- **Flicker or wrong first LEDs:** On the classic ESP32 (no RMT DMA) use the default `rmt_encoder: copy`; `simple` can underrun there.
 - **Compile errors after updating:** Include ESPHome version, board, framework and a minimal YAML example in the issue.
 
 ## License

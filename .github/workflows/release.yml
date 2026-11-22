@@ -41,6 +41,8 @@ jobs:
             config: tests/issue59.yaml
           - name: ESP32-S3
             config: tests/test.yaml
+          - name: ESP32 (simple encoder)
+            config: tests/rmt-encoder-simple.yaml
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-python@v7

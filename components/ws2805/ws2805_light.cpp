@@ -106,11 +106,14 @@ bool WS2805LightOutput::allocate_buffers_() {
   memset(this->effect_data_, 0, this->num_leds_);
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  this->rmt_buf_ = (rmt_symbol_word_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (this->use_simple_encoder_) {
+    // Simple encoder: raw bytes, expanded on-the-fly (RAM-efficient).
+    this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  } else {
+    this->rmt_buf_ = (uint8_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(RmtSymbol), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  }
 #else
-  this->rmt_buf_ = (rmt_item32_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_item32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  this->rmt_buf_ = (uint8_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(RmtSymbol), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
 #endif
   if (this->rmt_buf_ == nullptr) {
     ESP_LOGE(TAG, "Cannot allocate RMT buffer!");
@@ -161,14 +164,23 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  rmt_simple_encoder_config_t encoder_cfg;
-  memset(&encoder_cfg, 0, sizeof(encoder_cfg));
-  encoder_cfg.callback = encoder_callback_;
-  encoder_cfg.arg = &this->params_;
-  encoder_cfg.min_chunk_size = RMT_SYMBOLS_PER_BYTE;
-  if (rmt_new_simple_encoder(&encoder_cfg, &encoder) != ESP_OK) {
-    ESP_LOGE(TAG, "%s encoder creation failed", name);
-    return false;
+  if (this->use_simple_encoder_) {
+    rmt_simple_encoder_config_t encoder_cfg;
+    memset(&encoder_cfg, 0, sizeof(encoder_cfg));
+    encoder_cfg.callback = encoder_callback_;
+    encoder_cfg.arg = &this->params_;
+    encoder_cfg.min_chunk_size = RMT_SYMBOLS_PER_BYTE;
+    if (rmt_new_simple_encoder(&encoder_cfg, &encoder) != ESP_OK) {
+      ESP_LOGE(TAG, "%s encoder creation failed", name);
+      return false;
+    }
+  } else {
+    rmt_copy_encoder_config_t encoder_cfg;
+    memset(&encoder_cfg, 0, sizeof(encoder_cfg));
+    if (rmt_new_copy_encoder(&encoder_cfg, &encoder) != ESP_OK) {
+      ESP_LOGE(TAG, "%s encoder creation failed", name);
+      return false;
+    }
   }
 #else
   rmt_copy_encoder_config_t encoder_cfg;
@@ -515,19 +527,22 @@ void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_
 }
 
 // Encode buf_ into rmt_buf_. Returns the length to hand to the transmit call:
-//   v5.3+    → byte count        (simple encoder consumes raw bytes)
-//   v5.0-5.2 → symbol byte count (copy encoder consumes pre-expanded symbols)
-//   v4.x     → item count        (rmt_write_items)
+//   simple encoder (5.3+, rmt_encoder: simple) → byte count
+//   copy encoder (5.x)                        → symbol byte count
+//   legacy (4.x)                              → item count
 size_t WS2805LightOutput::encode_buffer_() {
   size_t buffer_size = this->frame_bytes_();
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  memcpy(this->rmt_buf_, this->buf_, buffer_size);
-  return buffer_size;
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  if (this->use_simple_encoder_) {
+    memcpy(this->rmt_buf_, this->buf_, buffer_size);
+    return buffer_size;
+  }
+#endif
+
+  RmtSymbol *pdest = (RmtSymbol *)this->rmt_buf_;
   size_t sym_count = 0;
   uint8_t *psrc = this->buf_;
-  RmtSymbol *pdest = this->rmt_buf_;
   for (size_t i = 0; i < buffer_size; i++) {
     uint8_t b = *psrc++;
     for (int j = 0; j < 8; j++) {
@@ -537,21 +552,10 @@ size_t WS2805LightOutput::encode_buffer_() {
   }
   *pdest++ = this->params_.reset;
   sym_count++;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   return sym_count * sizeof(RmtSymbol);
 #else
-  size_t len = 0;
-  uint8_t *psrc = this->buf_;
-  RmtSymbol *pdest = this->rmt_buf_;
-  for (size_t i = 0; i < buffer_size; i++) {
-    uint8_t b = *psrc++;
-    for (int j = 0; j < 8; j++) {
-      *pdest++ = (b & (1 << (7 - j))) ? this->params_.bit1 : this->params_.bit0;
-      len++;
-    }
-  }
-  *pdest++ = this->params_.reset;
-  len++;
-  return len;
+  return sym_count;
 #endif
 }
 

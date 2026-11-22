@@ -116,6 +116,7 @@ class WS2805LightOutput : public light::AddressableLight {
   }
   void set_constant_brightness(bool constant_brightness) { this->constant_brightness_ = constant_brightness; }
   void set_fdin_pin(uint8_t pin) { this->fdin_pin_ = pin; }
+  void set_use_simple_encoder(bool use_simple_encoder) { this->use_simple_encoder_ = use_simple_encoder; }
 
   // ── Diagnostics (read from YAML template sensors via output_id) ──
   // Number of WS2805 pixels driven on this strand.
@@ -219,6 +220,7 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
   bool dithering_{false};
   bool constant_brightness_{false};
+  bool use_simple_encoder_{false};  // rmt_encoder: simple (RAM-efficient) vs copy (default, robust refill)
   float error_cw_{0.0f};
   float error_ww_{0.0f};
   bool effect_whites_suppressed_{false};
@@ -251,11 +253,7 @@ class WS2805LightOutput : public light::AddressableLight {
   rmt_channel_t din_channel_{RMT_CHANNEL_MAX};
   rmt_channel_t fdin_channel_{RMT_CHANNEL_MAX};
 #endif
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  uint8_t *rmt_buf_{nullptr};
-#else
-  RmtSymbol *rmt_buf_{nullptr};
-#endif
+  uint8_t *rmt_buf_{nullptr};  // raw bytes (simple encoder) or pre-expanded symbols (copy/legacy); cast as needed
 };
 
 }

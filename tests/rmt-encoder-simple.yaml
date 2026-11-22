@@ -1,0 +1,21 @@
+esphome:
+  name: ws2805-rmt-simple
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ ws2805 ]
+
+light:
+  - platform: ws2805
+    id: ws2805_light
+    name: "WS2805 Simple Encoder"
+    pin: GPIO18
+    num_leds: 1
+    rmt_encoder: simple
