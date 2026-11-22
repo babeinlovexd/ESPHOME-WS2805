@@ -109,10 +109,13 @@ int main() {
   tick(defaults,state);
   for(int i=0;i<42;i++) assert(defaults.data[i*5]==8);
 
-  // Fixed mixed colors must not alternate between codes 2 and 1 as global
-  // brightness varies. Exercise the actual write_state path in every channel.
+  // Fixed mixed colors must keep their code as global brightness varies.
+  // Cover both the optional minimum and the existing default reference two,
+  // where the old brightness-ratio recovery jumped between codes two and one.
+  for(uint8_t floor:std::array<uint8_t,2>{{1,2}})
   for (int channel=0;channel<5;channel++) for(bool constant:{false,true}) {
     WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.sparse_floor_pwm_=floor;
     output.constant_brightness_=constant;
     state.remote_values.color.fill(0);state.remote_values.color[channel]=0.75f;
     const int offset=channel<3?channel:(channel==3?4:3);
@@ -122,7 +125,7 @@ int main() {
       const auto original=state.remote_values;
       tick(output,state);
       const int code=output.data[offset];
-      assert(code>=previous && code==2);previous=code;
+      assert(code>=previous && code==floor);previous=code;
       assert(state.remote_values.brightness==original.brightness && state.remote_values.color==original.color);
     }
   }
@@ -171,6 +174,7 @@ int main() {
   // at reference level two emits code one on each white channel.
   {
     WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.sparse_floor_pwm_=2;
     state.remote_values.mode=2;state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
     state.remote_values.color={{0,0,0,0.5f,0.5f}};
     tick(output,state);assert(output.data[3]==1&&output.data[4]==1);
@@ -179,8 +183,10 @@ int main() {
 
   // Full mixed-color sweeps through the actual driver and (when available)
   // ESPHome conversions, including both constant-white-brightness settings.
+  for(uint8_t floor:std::array<uint8_t,2>{{1,2}})
   for(int mode:{0,1,2,3})for(bool constant:{false,true})for(float color_brightness:{0.5f,1.0f}) {
     WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.sparse_floor_pwm_=floor;
     output.constant_brightness_=constant;
     state.remote_values.on=true;state.remote_values.mode=mode;
     state.remote_values.color_brightness=color_brightness;
@@ -197,15 +203,17 @@ int main() {
 
   // White ramps use the remapped target and keep their mask when brightness is
   // explicitly changed to zero. No previously dark pixel may flash during off.
+  for(uint8_t floor:std::array<uint8_t,2>{{1,2}})
   for (bool dither:{false,true}) for(int white:{3,4}) {
     WS2805LightOutput output;output.sparse_dimming_=true;output.dithering_=dither;
+    output.sparse_floor_pwm_=floor;
     output.transition_speed_=1;
     state.remote_values.color.fill(0); state.remote_values.color[white]=1;
     state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
     for(int frame=0;frame<15;frame++)tick(output,state);
     const auto mask=output.data; assert(output.sparse_step_==8);
     const int offset=white==3?4:3;
-    assert(output.data[offset]==2);
+    assert(output.data[offset]==floor);
     state.remote_values.brightness=0;
     for(int frame=0;frame<15;frame++) {
       tick(output,state);assert(output.sparse_step_==8);
@@ -227,17 +235,18 @@ int main() {
     for(int c=0;c<3;c++) assert(effect.data[i*5+c]==77);
     assert(effect.data[i*5+3]==1&&effect.data[i*5+4]==1);
   }
-  for(bool sparse:{false,true}) {
+  for(uint8_t floor:std::array<uint8_t,2>{{1,2}})for(bool sparse:{false,true}) {
     WS2805LightOutput interlock;interlock.sparse_dimming_=sparse;
+    interlock.sparse_floor_pwm_=floor;
     interlock.color_interlock_=true;interlock.transition_speed_=0;
     state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
     state.remote_values.color={{1,0,0,1,0}};
     tick(interlock,state);
     for(int i=0;i<42;i++)assert(interlock.data[i*5]==0);
-    assert(interlock.data[4]==(sparse?2:1));
+    assert(interlock.data[4]==(sparse?floor:1));
     state.remote_values.color={{1,0,0,0,0}};
     tick(interlock,state);
-    assert(interlock.data[0]==(sparse?2:1));
+    assert(interlock.data[0]==(sparse?floor:1));
     for(int i=0;i<42;i++)assert(interlock.data[i*5+3]==0&&interlock.data[i*5+4]==0);
   }
   const std::array<std::array<uint8_t,5>,6> orders{{

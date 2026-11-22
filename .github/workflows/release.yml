@@ -73,7 +73,7 @@ jobs:
       with:
         python-version: '3.12'
     - run: python -m pip install pytest esphome==2026.11.0
-    - run: python -m pytest -q tests/ws2805/test_light.py
+    - run: python -m pytest -q tests/ws2805/test_light.py tests/ws2805/test_sparse_config.py
     - name: Check sparse curve, white fades and off transitions
       env:
         REQUIRE_REAL_LIGHT_VALUES: '1'

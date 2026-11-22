@@ -1,3 +1,12 @@
+# ESPHome WS2805 v0.6.12
+
+- Preserve the `sparse_floor_pwm` option (1–255), its existing default of 2 and all explicitly configured values. Select `sparse_floor_pwm: 1` explicitly for the lowest reference.
+- Keep sparse dimming disabled by default and retain the existing driver behavior and transmission timings.
+- Document a complete power cycle of the controller and strip as a troubleshooting step for unexpected LED states after OTA updates.
+- Add real ESPHome configuration/code-generation checks for existing explicit values, disabled sparse dimming and combined encoder settings; retain all-floor curve coverage and test mixed colors and white fades at reference 1 and 2.
+
+---
+
 # ESPHome WS2805 v0.6.11
 
 - Add configurable sparse_floor_pwm (default 2; set 1 for the previous sparse minimum). Sparse dimming remains disabled by default.
