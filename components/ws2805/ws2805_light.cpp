@@ -363,7 +363,8 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   // dim colors and amplify their rounding error. Effects keep their own RGB data.
   const bool sparse_active = this->sparse_dimming_ && !this->is_effect_active();
   if (sparse_active) {
-    const auto plan = make_sparse_dimming_plan(state->remote_values.get_brightness(), this->sparse_max_step_);
+    const auto plan = make_sparse_dimming_plan(state->remote_values.get_brightness(), this->sparse_max_step_,
+                                               this->sparse_floor_pwm_);
     if (target_r > 0.0f || target_g > 0.0f || target_b > 0.0f || target_ww > 0.0f || target_cw > 0.0f)
       this->sparse_step_ = plan.step;
     // For an off/zero command keep the old mask until the white fade finishes;
