@@ -50,9 +50,7 @@ For the complete current option list, use the [configuration table](README.md#co
 
 `rmt_preencode` defaults to `false`, preserving the RAM-efficient path on ESP-IDF 5.3 and newer. Setting it to `true` prepares the RMT symbols before transmission and can reduce refill work on classic ESP32 devices. It requires substantially more contiguous internal RAM. Earlier frameworks already use pre-expanded symbols. See [memory requirements](README.md#optional-pre-encoding) before enabling it for long strips or multiple outputs.
 
-`sparse_dimming` also defaults to `false`. When enabled without an active addressable effect, it lowers average brightness by leaving some pixels off in a static, centered pattern. `sparse_max_step` defaults to `8` and accepts 2–32. Short strips provide fewer distinct density levels, and gaps can remain visible.
-
-`sparse_floor_pwm` defaults to `2` and accepts 1–255. It is the reference PWM level for a channel selected at full intensity in the sparse range. Smaller color and white shares remain proportional, so individual channels can fall below that reference or round to zero. Setting it to `1` retains the minimum used by component version 0.6.10. Higher values brighten the low end and may reduce uneven illumination on some strips; results depend on the hardware. The setting has no effect while sparse dimming is disabled.
+`sparse_dimming` also defaults to `false`. When enabled without an active addressable effect, it lowers average brightness by leaving some pixels off in a static, centered pattern. `sparse_max_step` defaults to `8` and accepts 2–32. Short strips provide fewer distinct density levels, and gaps can remain visible. At the bottom of the range the lit pixels use PWM `1`, the minimum nonzero code.
 
 Sparse dimming does not allocate another large frame buffer. Brightness remapping happens before the white-channel fade and optional temporal dithering. When switching off, the previous sparse pattern remains until the white fade finishes. See the [sparse dimming example](README.md#optional-sparse-dimming).
 
@@ -71,6 +69,8 @@ The defaults are `bit0_high_ns: 300`, `bit0_low_ns: 975`, `bit1_high_ns: 800`, `
 RMT durations are rounded to hardware ticks. With these defaults, a zero bit takes 1,275 ns at 80 or 40 MHz, or 1,300 ns on the legacy 10 MHz path. A one bit takes 1,600 ns. The [manufacturer's timing specification](https://dl.lightstream.pro/PDF/IC/WS2805_EN.pdf#page=3) requires a total bit duration of at least 1,250 ns as well as valid high and low pulse widths.
 
 Change timings only when your strip requires it. Bit timings that cannot be represented at the selected RMT clock are rejected with an error message. Very long reset pulses are capped by the hardware limit, with the adjustment reported in the log.
+
+> **Testing note:** OTA-flashing a WS2805 strip can leave the first chip(s) latched in their old state. After changing timing or firmware, **hard power-cycle the strip** before judging the result.
 
 ## Diagnostics
 

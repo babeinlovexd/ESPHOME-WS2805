@@ -22,7 +22,6 @@ CONF_ISR_PRIORITY = "isr_priority"
 CONF_RMT_PREENCODE = "rmt_preencode"
 CONF_SPARSE_DIMMING = "sparse_dimming"
 CONF_SPARSE_MAX_STEP = "sparse_max_step"
-CONF_SPARSE_FLOOR_PWM = "sparse_floor_pwm"
 CHANNEL_ORDERS = {
     "RGBWWCW": (0, 1, 2, 3, 4),
     "RGBCWWW": (0, 1, 2, 4, 3),
@@ -88,11 +87,10 @@ CONFIG_SCHEMA = cv.All(
     # Preserve the RAM-efficient path unless pre-encoding is explicitly enabled.
     cv.Optional(CONF_RMT_PREENCODE, default=False): cv.boolean,
     # Sparse dimming — extend the brightness range downward. The bottom
-    # `sparse_max_step` brightness levels light only a fraction of LEDs at the
-    # PWM floor, giving extra dimness below "all LEDs at 1/255".
+    # `sparse_max_step` brightness levels light only a fraction of LEDs at
+    # PWM 1, giving extra dimness below "all LEDs at 1/255".
     cv.Optional(CONF_SPARSE_DIMMING, default=False): cv.boolean,
     cv.Optional(CONF_SPARSE_MAX_STEP, default=8): cv.int_range(min=2, max=32),
-    cv.Optional(CONF_SPARSE_FLOOR_PWM, default=2): cv.int_range(min=1, max=255),
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -135,4 +133,3 @@ async def to_code(config):
     cg.add(var.set_use_simple_encoder(not config[CONF_RMT_PREENCODE]))
     cg.add(var.set_sparse_dimming(config[CONF_SPARSE_DIMMING]))
     cg.add(var.set_sparse_max_step(config[CONF_SPARSE_MAX_STEP]))
-    cg.add(var.set_sparse_floor_pwm(config[CONF_SPARSE_FLOOR_PWM]))

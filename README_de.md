@@ -74,7 +74,6 @@ Komponentenversionen **ab 0.6.8** unterstützen die von **ESPHome 2026.11.0** ve
 | `fdin_pin` | Optionaler zweiter Datenausgang für Streifen mit redundantem Eingang |
 | `sparse_dimming` | `false`; räumliches Dimmen für statische Beleuchtung einschalten |
 | `sparse_max_step` | `8`, zulässiger Bereich 2–32; größter Abstand zwischen aktiven LEDs |
-| `sparse_floor_pwm` | `2`, zulässiger Bereich 1–255; PWM-Referenzstufe für einen voll ausgesteuerten Kanal beim Sparse-Dimming |
 
 Im aktuellen Schema bleibt `pin` auch bei Angabe von `din_pin` erforderlich; `din_pin` überschreibt dann den verwendeten Daten-GPIO. Für normale Konfigurationen genügt `pin`. Eine zweite Datenleitung ersetzt keine korrekte Spannungsversorgung und Masseverbindung.
 
@@ -96,12 +95,11 @@ light:
     num_leds: 60
     sparse_dimming: true
     sparse_max_step: 8
-    sparse_floor_pwm: 2
 ```
 
 `sparse_max_step` bestimmt den größten Abstand zwischen aktiven LEDs. Mit `8` leuchtet bei den niedrigsten Einstellungen ungefähr jede achte LED. Mit steigender Helligkeit kommen mehr LEDs hinzu, bevor der Ausgang in den gewöhnlichen PWM-Dimmbereich übergeht. Das Muster ist statisch und auf dem Streifen zentriert; sichtbare Lücken sind möglich. Die volle Helligkeit bleibt erhalten, und der Helligkeitsregler verwendet weiterhin 0–100 %.
 
-`sparse_floor_pwm` legt die PWM-Referenzstufe für einen im Sparse-Bereich voll ausgesteuerten Kanal fest. Kleinere Farb- und Weißanteile werden proportional skaliert und können darunter liegen oder auf null gerundet werden. Beispiel: Bei `constant_brightness: false`, Referenzstufe `2` und jeweils 50 % Warm- und Kaltweiß ergibt sich PWM `1` je Weißkanal. Der Standard ist `2`, der zulässige Bereich 1–255. Mit `1` bleibt die Mindesthelligkeit aus Komponentenversion 0.6.10 erhalten. Höhere Referenzwerte machen den unteren Helligkeitsbereich heller und können bei manchen Streifen ungleichmäßiges Leuchten verringern. Das Ergebnis hängt vom Streifen ab; eine universelle Einstellung für gleichmäßiges Licht gibt es nicht. Bei `sparse_dimming: false` hat diese Option keine Wirkung.
+Am unteren Ende des Bereichs verwenden die leuchtenden Pixel PWM `1`, den kleinsten von null verschiedenen Code.
 
 Die Anzahl der LEDs begrenzt die verfügbaren Abstufungen. Sehr kurze Streifen bieten weniger unterscheidbare Stufen; es gibt eine kleinste Helligkeit oberhalb von „aus“ statt unbegrenztem Herunterdimmen. RGB und beide Weißkanäle folgen dem Muster der ausgewählten LEDs. Warm- und Kaltweiß bleiben dabei globale Einstellungen und werden nicht zu unabhängig konfigurierbaren Weißsegmenten. Sparse-Dimming reserviert keinen weiteren großen Frame-Puffer und ist unabhängig von `rmt_preencode`.
 
@@ -119,6 +117,8 @@ Die [Timing-Vorgaben des Herstellers](https://dl.lightstream.pro/PDF/IC/WS2805_E
 
 Bitzeiten, die sich beim gewählten RMT-Takt nicht darstellen lassen, werden mit einer Fehlermeldung abgelehnt. Sehr lange Reset-Pulse werden auf die Hardwaregrenze begrenzt; die Anpassung wird im Log gemeldet.
 
+> **Test-Hinweis:** Ein OTA-Flash kann die ersten Chips eines WS2805-Streifens in ihrem alten Zustand halten. Nach einer Änderung von Timing oder Firmware den Streifen **hart per Strom aus- und einschalten**, bevor das Ergebnis beurteilt wird.
+
 Template-Sensoren können über die separate `output_id` (oben beispielsweise `ws2805_output`) die Methoden `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` und `get_tx_error_count()` aufrufen. Die Licht-`id` bezeichnet den Lichtzustand und nicht den Treiberausgang. Siehe das [Diagnosebeispiel](docu.md#diagnostics). Die Werte belegen weder die Signalqualität noch eine bestimmte Hardwarekompatibilität.
 
 ## Beispiele & Fehlersuche
@@ -127,7 +127,7 @@ Template-Sensoren können über die separate `output_id` (oben beispielsweise `w
 - **Falsche Farben:** `channel_order` mit dem Streifen abgleichen.
 - **Unerwartete Weißkanäle:** Farbverriegelung und manuell eingestellte Weißwerte während Effekten prüfen.
 - **Lücken bei sehr geringer Helligkeit:** Bei `sparse_dimming: true` vorgesehen. Für ein dichteres Muster `sparse_max_step` verringern oder mit `sparse_dimming: false` zum gewöhnlichen Dimmen des ganzen Streifens zurückkehren.
-- **Ungleichmäßiges Licht bei den niedrigsten Sparse-Einstellungen:** Einen höheren Wert für `sparse_floor_pwm` ausprobieren; dadurch wird auch der untere Helligkeitsbereich heller. Das Ergebnis hängt vom Streifen ab.
+- **Ungleichmäßiges Licht bei den niedrigsten Sparse-Einstellungen:** Prüfen, ob die Bit-Zeiten innerhalb der Spezifikation liegen (siehe „Timing & Diagnose") — eine außerhalb der Spezifikation liegende „1"-Bit-Low-Zeit lässt PWM 1 fleckig erscheinen.
 - **Blitzen oder RMT-Fehler:** Versorgung, gemeinsame Masse, Signalpegel, Streifenlänge, RMT-Belegung und Framework-Logs prüfen.
 - **Flackern oder falsche erste LEDs:** Auf klassischen ESP32 bei ausreichend freiem internem RAM `rmt_preencode: true` ausprobieren.
 - **Angaben für den Support:** Bei einer Fehlermeldung Komponenten- und ESPHome-Version, Board, Framework, relevante Logs und eine minimale YAML angeben.
