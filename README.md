@@ -69,9 +69,21 @@ The build matrix compiles both pinned ESPHome versions and the latest stable ver
 | `dithering` | `false` |
 | `isr_priority` | `3`, allowed range 1–3 |
 | `fdin_pin` | Optional backup data output for strips with a redundant input |
+| `sparse_dimming` | `false`; when true, extend the brightness range downward |
+| `sparse_max_step` | `8`; number of extra dimness levels below the PWM floor |
 
 In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
 
+### Sparse dimming (dimmer floor)
+
+`sparse_dimming: true` extends the brightness range downward. The WS2805's PWM
+is 8-bit, so the dimmest setting is normally "all LEDs at 1/255". Sparse dimming
+maps the bottom `sparse_max_step` brightness levels to a fraction of LEDs lit at
+that floor — level 1 lights every Nth LED, level 2 every (N−1)th, … level N all
+of them. This adds `sparse_max_step` dimness steps below the old floor without
+changing the 0–100% interface. The lit LEDs sit at the PWM floor and the rest
+are off, so the glow is slightly dotted at the very bottom — fine for a night
+light; a diffuser hides it if not.
 ### Multiple strips
 
 The component's validator permits **8 instances on ESP32**, **4 on ESP32-S2/S3**, and **2 on ESP32-C3/C6**. Other users of RMT and the chosen chip/framework can further constrain the usable resources. Each strip needs its own data GPIO. There is no guarantee of eight independent strips on an S3.

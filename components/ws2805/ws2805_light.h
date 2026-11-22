@@ -116,6 +116,8 @@ class WS2805LightOutput : public light::AddressableLight {
   }
   void set_constant_brightness(bool constant_brightness) { this->constant_brightness_ = constant_brightness; }
   void set_fdin_pin(uint8_t pin) { this->fdin_pin_ = pin; }
+  void set_sparse_dimming(bool v) { this->sparse_dimming_ = v; }
+  void set_sparse_max_step(uint8_t v) { this->sparse_max_step_ = v; }
 
   // ── Diagnostics (read from YAML template sensors via output_id) ──
   // Number of WS2805 pixels driven on this strand.
@@ -169,6 +171,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void compute_white_bytes_(bool is_fading, uint8_t &cw, uint8_t &ww);
   void clear_white_state_();
   void fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw);
+  void sparse_fill_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step);
   size_t encode_buffer_();
   bool encode_and_transmit_();
 
@@ -219,6 +222,8 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
   bool dithering_{false};
   bool constant_brightness_{false};
+  bool sparse_dimming_{false};      // extend the brightness range with a sparse dimmer floor
+  uint8_t sparse_max_step_{8};      // number of extra dimness levels (practical floor)
   float error_cw_{0.0f};
   float error_ww_{0.0f};
   bool effect_whites_suppressed_{false};

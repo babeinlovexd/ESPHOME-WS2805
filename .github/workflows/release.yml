@@ -41,6 +41,8 @@ jobs:
             config: tests/issue59.yaml
           - name: ESP32-S3
             config: tests/test.yaml
+          - name: ESP32 (sparse dimming)
+            config: tests/sparse-dimming.yaml
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-python@v7

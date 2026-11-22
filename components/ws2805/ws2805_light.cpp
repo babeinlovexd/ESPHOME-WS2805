@@ -378,7 +378,34 @@ void WS2805LightOutput::write_state(light::LightState *state) {
       p[this->offset_w2_] = cw;
     }
   } else {
-    this->fill_led_buffer_(r8, g8, b8, ww, cw);
+    float brightness = state->remote_values.get_brightness();
+    if (this->sparse_dimming_ && brightness > 0.0f) {
+      // Extend the brightness range: the bottom sparse_max_step brightness
+      // levels light only a fraction of LEDs at the PWM floor; the rest of the
+      // range is remapped so full brightness is unchanged.
+      float b_scaled = brightness * 255.0f;  // 0..255
+      float n = (float)this->sparse_max_step_;
+      float scale;
+      uint8_t step = 1;
+      if (b_scaled <= n) {
+        step = (uint8_t)std::max(1, std::min((int)n, (int)std::round(n - b_scaled + 1.0f)));
+        scale = 1.0f / b_scaled;  // lit LEDs land at the PWM floor (1/255)
+      } else {
+        scale = ((b_scaled - n) / (255.0f - n)) / brightness;
+      }
+      uint8_t sr = static_cast<uint8_t>(std::min(255.0f, std::round(r8 * scale)));
+      uint8_t sg = static_cast<uint8_t>(std::min(255.0f, std::round(g8 * scale)));
+      uint8_t sb = static_cast<uint8_t>(std::min(255.0f, std::round(b8 * scale)));
+      uint8_t sww = static_cast<uint8_t>(std::min(255.0f, std::round(ww * scale)));
+      uint8_t scw = static_cast<uint8_t>(std::min(255.0f, std::round(cw * scale)));
+      if (step > 1) {
+        this->sparse_fill_(sr, sg, sb, sww, scw, step);
+      } else {
+        this->fill_led_buffer_(sr, sg, sb, sww, scw);
+      }
+    } else {
+      this->fill_led_buffer_(r8, g8, b8, ww, cw);
+    }
   }
 
   this->mark_shown_();
@@ -511,6 +538,31 @@ void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_
     p[this->offset_b_] = b;
     p[this->offset_w1_] = ww;
     p[this->offset_w2_] = cw;
+  }
+}
+
+void WS2805LightOutput::sparse_fill_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step) {
+  // Static sparse pattern: light every `step`-th LED, centered on the strip so
+  // the leading and trailing dark margins are balanced instead of piling the
+  // leftover dark LEDs at the tail.
+  int n = this->size();
+  int lit_count = (n - 1) / step + 1;
+  int offset = (n - 1 - (lit_count - 1) * step) / 2;
+  for (int i = 0; i < n; i++) {
+    uint8_t *p = this->buf_ + BYTES_PER_LED * i;
+    if (i >= offset && (i - offset) % step == 0) {
+      p[this->offset_r_] = r;
+      p[this->offset_g_] = g;
+      p[this->offset_b_] = b;
+      p[this->offset_w1_] = ww;
+      p[this->offset_w2_] = cw;
+    } else {
+      p[this->offset_r_] = 0;
+      p[this->offset_g_] = 0;
+      p[this->offset_b_] = 0;
+      p[this->offset_w1_] = 0;
+      p[this->offset_w2_] = 0;
+    }
   }
 }
 
