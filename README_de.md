@@ -36,6 +36,7 @@ external_components:
 light:
   - platform: ws2805
     id: ws2805_light
+    output_id: ws2805_output
     name: "WS2805"
     pin: GPIO4
     num_leds: 60
@@ -73,6 +74,7 @@ Komponentenversionen **ab 0.6.8** unterstützen die von **ESPHome 2026.11.0** ve
 | `fdin_pin` | Optionaler zweiter Datenausgang für Streifen mit redundantem Eingang |
 | `sparse_dimming` | `false`; räumliches Dimmen für statische Beleuchtung einschalten |
 | `sparse_max_step` | `8`, zulässiger Bereich 2–32; größter Abstand zwischen aktiven LEDs |
+| `sparse_floor_pwm` | `2`, zulässiger Bereich 1–255; PWM-Referenzstufe für einen voll ausgesteuerten Kanal beim Sparse-Dimming |
 
 Im aktuellen Schema bleibt `pin` auch bei Angabe von `din_pin` erforderlich; `din_pin` überschreibt dann den verwendeten Daten-GPIO. Für normale Konfigurationen genügt `pin`. Eine zweite Datenleitung ersetzt keine korrekte Spannungsversorgung und Masseverbindung.
 
@@ -94,9 +96,12 @@ light:
     num_leds: 60
     sparse_dimming: true
     sparse_max_step: 8
+    sparse_floor_pwm: 2
 ```
 
 `sparse_max_step` bestimmt den größten Abstand zwischen aktiven LEDs. Mit `8` leuchtet bei den niedrigsten Einstellungen ungefähr jede achte LED. Mit steigender Helligkeit kommen mehr LEDs hinzu, bevor der Ausgang in den gewöhnlichen PWM-Dimmbereich übergeht. Das Muster ist statisch und auf dem Streifen zentriert; sichtbare Lücken sind möglich. Die volle Helligkeit bleibt erhalten, und der Helligkeitsregler verwendet weiterhin 0–100 %.
+
+`sparse_floor_pwm` legt die PWM-Referenzstufe für einen im Sparse-Bereich voll ausgesteuerten Kanal fest. Kleinere Farb- und Weißanteile werden proportional skaliert und können darunter liegen oder auf null gerundet werden. Beispiel: Bei `constant_brightness: false`, Referenzstufe `2` und jeweils 50 % Warm- und Kaltweiß ergibt sich PWM `1` je Weißkanal. Der Standard ist `2`, der zulässige Bereich 1–255. Mit `1` bleibt die Mindesthelligkeit aus Komponentenversion 0.6.10 erhalten. Höhere Referenzwerte machen den unteren Helligkeitsbereich heller und können bei manchen Streifen ungleichmäßiges Leuchten verringern. Das Ergebnis hängt vom Streifen ab; eine universelle Einstellung für gleichmäßiges Licht gibt es nicht. Bei `sparse_dimming: false` hat diese Option keine Wirkung.
 
 Die Anzahl der LEDs begrenzt die verfügbaren Abstufungen. Sehr kurze Streifen bieten weniger unterscheidbare Stufen; es gibt eine kleinste Helligkeit oberhalb von „aus“ statt unbegrenztem Herunterdimmen. RGB und beide Weißkanäle folgen dem Muster der ausgewählten LEDs. Warm- und Kaltweiß bleiben dabei globale Einstellungen und werden nicht zu unabhängig konfigurierbaren Weißsegmenten. Sparse-Dimming reserviert keinen weiteren großen Frame-Puffer und ist unabhängig von `rmt_preencode`.
 
@@ -108,9 +113,13 @@ Der Komponenten-Validator erlaubt **8 Instanzen auf ESP32**, **4 auf ESP32-S2/S3
 
 ### Timing & Diagnose
 
-Erweiterte Timing-Standardwerte sind `bit0_high_ns: 300`, `bit0_low_ns: 800`, `bit1_high_ns: 800`, `bit1_low_ns: 800` und `reset_pulse_us: 300`. Diese Werte nur bei abweichenden Anforderungen des LED-Streifens ändern.
+Erweiterte Timing-Standardwerte sind `bit0_high_ns: 300`, `bit0_low_ns: 975`, `bit1_high_ns: 800`, `bit1_low_ns: 800` und `reset_pulse_us: 300`. Der RMT-Takt rundet die Zeiten auf Hardware-Ticks: Mit diesen Standardwerten dauert ein Null-Bit bei 80 oder 40 MHz insgesamt 1.275 ns, im älteren 10-MHz-Pfad 1.300 ns. Ein Eins-Bit dauert 1.600 ns.
 
-Template-Sensoren können über die Licht-ID `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` und `get_tx_error_count()` aufrufen. Das sind Diagnosewerte, kein Nachweis einer bestimmten Hardwarekompatibilität.
+Die [Timing-Vorgaben des Herstellers](https://dl.lightstream.pro/PDF/IC/WS2805_EN.pdf#page=3) nennen 220–380 ns für den High-Puls des Null-Bits und 580–1.000 ns für die anderen drei Pulse. Die gesamte Bitdauer muss mindestens 1.250 ns betragen. Timing-Parameter nur bei abweichenden Anforderungen des Streifens ändern und dabei Pulsbreiten sowie Gesamtdauer innerhalb der Vorgaben halten.
+
+Bitzeiten, die sich beim gewählten RMT-Takt nicht darstellen lassen, werden mit einer Fehlermeldung abgelehnt. Sehr lange Reset-Pulse werden auf die Hardwaregrenze begrenzt; die Anpassung wird im Log gemeldet.
+
+Template-Sensoren können über die separate `output_id` (oben beispielsweise `ws2805_output`) die Methoden `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` und `get_tx_error_count()` aufrufen. Die Licht-`id` bezeichnet den Lichtzustand und nicht den Treiberausgang. Siehe das [Diagnosebeispiel](docu.md#diagnostics). Die Werte belegen weder die Signalqualität noch eine bestimmte Hardwarekompatibilität.
 
 ## Beispiele & Fehlersuche
 
@@ -118,6 +127,7 @@ Template-Sensoren können über die Licht-ID `get_num_leds()`, `get_frame_bytes(
 - **Falsche Farben:** `channel_order` mit dem Streifen abgleichen.
 - **Unerwartete Weißkanäle:** Farbverriegelung und manuell eingestellte Weißwerte während Effekten prüfen.
 - **Lücken bei sehr geringer Helligkeit:** Bei `sparse_dimming: true` vorgesehen. Für ein dichteres Muster `sparse_max_step` verringern oder mit `sparse_dimming: false` zum gewöhnlichen Dimmen des ganzen Streifens zurückkehren.
+- **Ungleichmäßiges Licht bei den niedrigsten Sparse-Einstellungen:** Einen höheren Wert für `sparse_floor_pwm` ausprobieren; dadurch wird auch der untere Helligkeitsbereich heller. Das Ergebnis hängt vom Streifen ab.
 - **Blitzen oder RMT-Fehler:** Versorgung, gemeinsame Masse, Signalpegel, Streifenlänge, RMT-Belegung und Framework-Logs prüfen.
 - **Flackern oder falsche erste LEDs:** Auf klassischen ESP32 bei ausreichend freiem internem RAM `rmt_preencode: true` ausprobieren.
 - **Angaben für den Support:** Bei einer Fehlermeldung Komponenten- und ESPHome-Version, Board, Framework, relevante Logs und eine minimale YAML angeben.

@@ -7,6 +7,9 @@
 #include <iostream>
 #include <vector>
 #include "ws2805_sparse_dimming.h"
+#ifdef USE_REAL_LIGHT_VALUES
+#include "esphome/components/light/light_color_values.h"
+#endif
 
 // Host adapters for ESPHome state and hardware I/O. The driver methods below
 // are inserted verbatim from ws2805_light.cpp; firmware CI uses real headers.
@@ -19,15 +22,35 @@ namespace light {
 struct Values {
   float brightness{1.0f};
   bool on{true};
+  float color_brightness{1.0f};
+  int mode{0};  // mixed RGB+CWWW, RGB only, CWWW only, unknown
   std::array<float, 5> color{{1, 0, 0, 0, 0}};  // R,G,B,CW,WW
   float get_brightness() const { return brightness; }
-  void as_rgbww(float *r, float *g, float *b, float *cw, float *ww, bool) const {
+  void set_brightness(float value) { brightness=value; }
+  void as_rgbww(float *r, float *g, float *b, float *cw, float *ww, bool constant) const {
+#ifdef USE_REAL_LIGHT_VALUES
+    LightColorValues values;
+    values.set_color_mode(mode==1?ColorMode::RGB:mode==2?ColorMode::COLD_WARM_WHITE:
+                          mode==3?ColorMode::UNKNOWN:ColorMode::RGB_COLD_WARM_WHITE);
+    values.set_state(on);values.set_brightness(brightness);values.set_color_brightness(color_brightness);
+    values.set_red(color[0]);values.set_green(color[1]);values.set_blue(color[2]);
+    values.set_cold_white(color[3]);values.set_warm_white(color[4]);
+    values.as_rgbww(r,g,b,cw,ww,constant);
+#else
     const float level = on ? brightness : 0.0f;
-    *r=color[0]*level; *g=color[1]*level; *b=color[2]*level;
+    *r=color[0]*level*color_brightness; *g=color[1]*level*color_brightness; *b=color[2]*level*color_brightness;
     *cw=color[3]*level; *ww=color[4]*level;
+    if (constant && color[3]+color[4]>0) {
+      const float factor=std::max(color[3],color[4])/(color[3]+color[4]);
+      *cw*=factor; *ww*=factor;
+    }
+    if(mode==1||mode==3)*cw=*ww=0;
+    if(mode==2||mode==3)*r=*g=*b=0;
+#endif
   }
 };
-struct LightCall {
+class LightCall {
+ public:
   Values *values;
   void set_cold_white_if_supported(float v) { values->color[3]=v; }
   void set_warm_white_if_supported(float v) { values->color[4]=v; }
@@ -86,6 +109,24 @@ int main() {
   tick(defaults,state);
   for(int i=0;i<42;i++) assert(defaults.data[i*5]==8);
 
+  // Fixed mixed colors must not alternate between codes 2 and 1 as global
+  // brightness varies. Exercise the actual write_state path in every channel.
+  for (int channel=0;channel<5;channel++) for(bool constant:{false,true}) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.constant_brightness_=constant;
+    state.remote_values.color.fill(0);state.remote_values.color[channel]=0.75f;
+    const int offset=channel<3?channel:(channel==3?4:3);
+    int previous=0;
+    for(int level=1;level<=2000;level++) {
+      state.remote_values.brightness=level/2550000.0f;
+      const auto original=state.remote_values;
+      tick(output,state);
+      const int code=output.data[offset];
+      assert(code>=previous && code==2);previous=code;
+      assert(state.remote_values.brightness==original.brightness && state.remote_values.color==original.color);
+    }
+  }
+
   for (int channel=0;channel<5;channel++) {
     WS2805LightOutput output; output.sparse_dimming_=true; output.transition_speed_=0;
     state.remote_values.color.fill(0); state.remote_values.color[channel]=1;
@@ -101,6 +142,58 @@ int main() {
     state.remote_values.on=false; tick(output,state);
     for(int i=0;i<42*5;i++)assert(output.data[i]==0);
   }
+
+  // Check all five channels at configurable floor extremes and both color modes.
+  for(uint8_t floor:std::array<uint8_t,4>{{1,2,32,255}})for(int channel=0;channel<5;channel++) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.sparse_floor_pwm_=floor;
+    output.transition_speed_=0;
+    state.remote_values.color.fill(0);state.remote_values.color[channel]=1;
+    state.remote_values.on=true;state.remote_values.brightness=0.5f/255.0f;
+    tick(output,state);
+    assert(output.data[channel<3?channel:channel==3?4:3]==floor);
+  }
+  for(int mode:{0,1,2,3})for(bool constant:{false,true}) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.constant_brightness_=constant;
+    state.remote_values.mode=mode;state.remote_values.color_brightness=0.75f;
+    state.remote_values.color={{1,0.75f,0.25f,0.75f,0.25f}};
+    state.remote_values.on=true;state.remote_values.brightness=1;
+    float r,g,b,cw,ww;state.remote_values.as_rgbww(&r,&g,&b,&cw,&ww,constant);
+    tick(output,state);
+    const std::array<float,5> expected{{r,g,b,ww,cw}};
+    for(int i=0;i<42;i++)for(int c=0;c<5;c++)assert(output.data[i*5+c]==uint8_t(std::round(expected[c]*255)));
+    state.remote_values.on=false;tick(output,state);
+    for(int i=0;i<42*5;i++)assert(output.data[i]==0);
+  }
+  state.remote_values.mode=0;state.remote_values.color_brightness=1;
+
+  // The reference floor is not a per-channel minimum: a 50/50 white mix
+  // at reference level two emits code one on each white channel.
+  {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    state.remote_values.mode=2;state.remote_values.on=true;state.remote_values.brightness=1.0f/255.0f;
+    state.remote_values.color={{0,0,0,0.5f,0.5f}};
+    tick(output,state);assert(output.data[3]==1&&output.data[4]==1);
+    state.remote_values.mode=0;
+  }
+
+  // Full mixed-color sweeps through the actual driver and (when available)
+  // ESPHome conversions, including both constant-white-brightness settings.
+  for(int mode:{0,1,2,3})for(bool constant:{false,true})for(float color_brightness:{0.5f,1.0f}) {
+    WS2805LightOutput output;output.sparse_dimming_=true;output.transition_speed_=0;
+    output.constant_brightness_=constant;
+    state.remote_values.on=true;state.remote_values.mode=mode;
+    state.remote_values.color_brightness=color_brightness;
+    state.remote_values.color={{1,0.75f,0.25f,0.75f,0.25f}};
+    std::array<int,5> previous{};
+    for(int level=0;level<=2550;level++) {
+      state.remote_values.brightness=level/2550.0f;tick(output,state);
+      std::array<int,5> sum{};
+      for(int i=0;i<42;i++)for(int c=0;c<5;c++)sum[c]+=output.data[i*5+c];
+      for(int c=0;c<5;c++){assert(sum[c]>=previous[c]);previous[c]=sum[c];}
+    }
+  }
+  state.remote_values.mode=0;state.remote_values.color_brightness=1;
 
   // White ramps use the remapped target and keep their mask when brightness is
   // explicitly changed to zero. No previously dark pixel may flash during off.

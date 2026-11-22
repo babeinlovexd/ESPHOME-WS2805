@@ -80,7 +80,11 @@ void WS2805LightOutput::setup() {
   }
 #endif
 
-  this->calc_timing_();
+  if (!this->calc_timing_()) {
+    this->mark_failed();
+    this->cleanup_();
+    return;
+  }
   this->setup_complete_ = true;
 
   // Send a full zero frame on boot to clear any chips left in an unknown state
@@ -284,32 +288,49 @@ size_t IRAM_ATTR HOT WS2805LightOutput::encoder_callback_(const void *data, size
 }
 #endif
 
-void WS2805LightOutput::calc_timing_() {
-  float ratio = (float) rmt_resolution_hz_() / 1e09f;
-
-  ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz (Ratio: %f)", rmt_resolution_hz_(), ratio);
-
-  // Round to nearest tick — bounds error to ±0.5 ticks regardless of RMT clock freq
-  this->params_.bit0.duration0 = (uint32_t) (ratio * this->bit0_high_ns_ + 0.5f);
+bool WS2805LightOutput::calc_timing_() {
+  this->rmt_clock_hz_ = rmt_resolution_hz_();
+  if (this->rmt_clock_hz_ == 0) {
+    ESP_LOGE(TAG, "Invalid RMT clock");
+    return false;
+  }
+  ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz", this->rmt_clock_hz_);
+  // Integer rounding avoids float errors and intermediate overflow for uint32
+  // configuration values. Never silently wrap a 15-bit symbol duration.
+  const auto ns_ticks = [this](uint32_t ns) -> uint64_t {
+    return (uint64_t(this->rmt_clock_hz_) * ns + 500000000ULL) / 1000000000ULL;
+  };
+  const uint64_t ticks[] = {ns_ticks(this->bit0_high_ns_), ns_ticks(this->bit0_low_ns_),
+                            ns_ticks(this->bit1_high_ns_), ns_ticks(this->bit1_low_ns_)};
+  for (auto count : ticks) {
+    if (count == 0 || count > 32767) {
+      ESP_LOGE(TAG, "Bit timing cannot be represented at the selected RMT clock");
+      return false;
+    }
+  }
+  this->params_.bit0.duration0 = static_cast<uint32_t>(ticks[0]);
   this->params_.bit0.level0 = 1;
-  this->params_.bit0.duration1 = (uint32_t) (ratio * this->bit0_low_ns_ + 0.5f);
+  this->params_.bit0.duration1 = static_cast<uint32_t>(ticks[1]);
   this->params_.bit0.level1 = 0;
-  this->params_.bit1.duration0 = (uint32_t) (ratio * this->bit1_high_ns_ + 0.5f);
+  this->params_.bit1.duration0 = static_cast<uint32_t>(ticks[2]);
   this->params_.bit1.level0 = 1;
-  this->params_.bit1.duration1 = (uint32_t) (ratio * this->bit1_low_ns_ + 0.5f);
+  this->params_.bit1.duration1 = static_cast<uint32_t>(ticks[3]);
   this->params_.bit1.level1 = 0;
-  // RMT symbol duration fields are 15-bit (max 32767 ticks). A long reset can
-  // exceed that at high RMT resolutions (e.g. >409µs @ 80MHz), so split the low
-  // period across both halves of the symbol — both held low — to double the
-  // range, then clamp. Short resets keep duration1 = 0 (unchanged behavior).
-  uint32_t reset_ticks = (uint32_t) (ratio * this->reset_pulse_us_ * 1000.0f + 0.5f);
-  uint32_t reset_d0 = reset_ticks > 32767u ? 32767u : reset_ticks;
-  uint32_t reset_d1 = reset_ticks - reset_d0;
-  if (reset_d1 > 32767u) reset_d1 = 32767u;
-  this->params_.reset.duration0 = reset_d0;
+
+  uint64_t reset_ticks = (uint64_t(this->rmt_clock_hz_) * this->reset_pulse_us_ + 500000ULL) / 1000000ULL;
+  if (reset_ticks == 0) {
+    ESP_LOGE(TAG, "Reset timing cannot be represented at the selected RMT clock");
+    return false;
+  }
+  if (reset_ticks > 65534) {
+    ESP_LOGW(TAG, "Reset pulse limited by the two 15-bit RMT duration fields");
+    reset_ticks = 65534;
+  }
+  this->params_.reset.duration0 = static_cast<uint32_t>(std::min(reset_ticks, uint64_t(32767)));
   this->params_.reset.level0 = 0;
-  this->params_.reset.duration1 = reset_d1;
+  this->params_.reset.duration1 = static_cast<uint32_t>(reset_ticks - this->params_.reset.duration0);
   this->params_.reset.level1 = 0;
+  return true;
 }
 
 void WS2805LightOutput::transmit_clear_frame_() {
@@ -369,11 +390,19 @@ void WS2805LightOutput::write_state(light::LightState *state) {
       this->sparse_step_ = plan.step;
     // For an off/zero command keep the old mask until the white fade finishes;
     // changing it to step 1 here would briefly light previously dark pixels.
-    target_r = plan.apply(target_r);
-    target_g = plan.apply(target_g);
-    target_b = plan.apply(target_b);
-    target_ww = plan.apply(target_ww);
-    target_cw = plan.apply(target_cw);
+    // Get the same ESPHome color conversion without global brightness. A
+    // copy keeps state/mode/color-brightness/constant-brightness semantics,
+    // without mutating HA state or recovering a noisy ratio by division.
+    auto unscaled = state->remote_values;
+    unscaled.set_brightness(1.0f);
+    float r, g, b, cw, ww;
+    unscaled.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
+    // Preserve zero/off and color-interlock decisions from read_target_values_.
+    target_r = target_r > 0.0f ? plan.apply_unscaled(r) : 0.0f;
+    target_g = target_g > 0.0f ? plan.apply_unscaled(g) : 0.0f;
+    target_b = target_b > 0.0f ? plan.apply_unscaled(b) : 0.0f;
+    target_ww = target_ww > 0.0f ? plan.apply_unscaled(ww) : 0.0f;
+    target_cw = target_cw > 0.0f ? plan.apply_unscaled(cw) : 0.0f;
   } else {
     this->sparse_step_ = 1;
   }

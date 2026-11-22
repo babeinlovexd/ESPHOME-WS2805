@@ -8,7 +8,9 @@
 #include "ws2805_color_accessor.h"
 #include "ws2805_sparse_dimming.h"
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 #include <driver/gpio.h>
 #include <esp_err.h>
 #include <esp_idf_version.h>
@@ -151,8 +153,18 @@ class WS2805LightOutput : public light::AddressableLight {
   static uint32_t rmt_resolution_hz_();
 
   size_t frame_bytes_() const { return static_cast<size_t>(this->num_leds_) * BYTES_PER_LED; }
-  // Worst-case time to clock out one frame: ~50µs/LED plus a fixed 50ms margin.
-  int tx_timeout_ms_() const { return (static_cast<uint32_t>(this->num_leds_) * 50) / 1000 + 50; }
+  // Use actual rounded symbols, including reset. A fixed 50us/pixel estimate
+  // undercounts long all-one frames (64us/pixel at the standard timings).
+  int tx_timeout_ms_() const {
+    if (this->rmt_clock_hz_ == 0)
+      return 50;
+    const uint64_t bit_ticks = std::max(uint32_t(this->params_.bit0.duration0 + this->params_.bit0.duration1),
+                                        uint32_t(this->params_.bit1.duration0 + this->params_.bit1.duration1));
+    const uint64_t frame_ticks = bit_ticks * 40 * this->num_leds_ +
+                                 this->params_.reset.duration0 + this->params_.reset.duration1;
+    const uint64_t timeout = (frame_ticks * 1000 + this->rmt_clock_hz_ - 1) / this->rmt_clock_hz_ + 50;
+    return static_cast<int>(std::min(timeout, uint64_t(std::numeric_limits<int>::max())));
+  }
 
   // ── setup() helpers (callstack order) ──
   bool allocate_buffers_();
@@ -164,7 +176,7 @@ class WS2805LightOutput : public light::AddressableLight {
   bool init_rmt_channel_(uint8_t pin, const char *name, rmt_channel_t &channel, rmt_channel_t skip);
   void teardown_rmt_channel_(rmt_channel_t &channel);
 #endif
-  void calc_timing_();
+  bool calc_timing_();
   void transmit_clear_frame_();
 
   // ── write_state() helpers (callstack order) ──
@@ -228,7 +240,7 @@ class WS2805LightOutput : public light::AddressableLight {
   bool use_simple_encoder_{true};  // rmt_preencode defaults to false: preserve RAM-efficient encoding
   bool sparse_dimming_{false};      // extend the brightness range with a sparse dimmer floor
   uint8_t sparse_max_step_{8};      // largest spacing between active pixels
-  uint8_t sparse_floor_pwm_{2};     // PWM level for lit pixels in the sparse regime (1 is unreliable)
+  uint8_t sparse_floor_pwm_{2};     // reference PWM for full-intensity sparse channels
   uint8_t sparse_step_{1};          // retain the mask while white channels fade to off
   float error_cw_{0.0f};
   float error_ww_{0.0f};
@@ -237,14 +249,14 @@ class WS2805LightOutput : public light::AddressableLight {
   float suppressed_cw_{0.0f};
   float suppressed_ww_{0.0f};
 
-  // Configurable RMT bit timing (defaults: WS2805 datasheet center values).
+  // Configurable RMT timings: respect pulse windows AND >=1.25us bit periods.
   // Tick counts are resolution-dependent; the "@80MHz" notes below are just
   // illustrative for the classic ESP32 (resolution is auto-detected per target).
   uint32_t bit0_high_ns_{300};   // spec: 220-380ns → center at 300ns (24 ticks @ 80MHz)
-  uint32_t bit0_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
+  uint32_t bit0_low_ns_{975};    // 580-1000ns; 25ns margin on the 0-bit period at 80MHz
   uint32_t bit1_high_ns_{800};   // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t bit1_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
-  uint32_t reset_pulse_us_{300}; // spec: ≥280µs (24000 ticks @ 80MHz)
+  uint32_t reset_pulse_us_{300}; // spec: >280us (24000 ticks @ 80MHz)
   uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
 
   uint8_t *buf_{nullptr};
@@ -252,6 +264,7 @@ class WS2805LightOutput : public light::AddressableLight {
   WS2805ColorAccessor color_accessor_{this->correction_};
 #endif
   LedParams params_;
+  uint32_t rmt_clock_hz_{0};
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   rmt_channel_handle_t din_channel_{nullptr};
   rmt_encoder_handle_t din_encoder_{nullptr};

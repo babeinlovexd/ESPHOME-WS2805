@@ -75,17 +75,15 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional(CONF_CONSTANT_BRIGHTNESS, default=False): cv.boolean,
     cv.Optional("cct_transition_speed", default="3s"): cv.positive_time_period_milliseconds,
     cv.Optional("dithering", default=False): cv.boolean,
-    # Advanced RMT bit timing — defaults center in the WS2805 datasheet ranges.
+    # Defaults respect pulse windows and the minimum WS2805 bit period.
     # The RMT resolution is auto-detected per build target, so no clock divider
     # is exposed here.
-    cv.Optional("bit0_high_ns", default=300): cv.positive_int,
-    # WS2805 datasheet: each bit period (TH+TL) must be >= 1.25µs and the
-    # return-to-zero coding uses a short high + long low for "0" and a long
-    # high + short low for "1". Defaults center both within spec.
-    cv.Optional("bit0_low_ns", default=950): cv.positive_int,
-    cv.Optional("bit1_high_ns", default=900): cv.positive_int,
-    cv.Optional("bit1_low_ns", default=350): cv.positive_int,
-    cv.Optional("reset_pulse_us", default=300): cv.positive_int,
+    cv.Optional("bit0_high_ns", default=300): cv.int_range(min=1, max=0xFFFFFFFF),
+    # Keep both high/low windows and the minimum total bit period in spec.
+    cv.Optional("bit0_low_ns", default=975): cv.int_range(min=1, max=0xFFFFFFFF),
+    cv.Optional("bit1_high_ns", default=800): cv.int_range(min=1, max=0xFFFFFFFF),
+    cv.Optional("bit1_low_ns", default=800): cv.int_range(min=1, max=0xFFFFFFFF),
+    cv.Optional("reset_pulse_us", default=300): cv.int_range(min=1, max=0xFFFFFFFF),
     cv.Optional(CONF_ISR_PRIORITY, default=3): cv.int_range(min=1, max=3),
     # Preserve the RAM-efficient path unless pre-encoding is explicitly enabled.
     cv.Optional(CONF_RMT_PREENCODE, default=False): cv.boolean,

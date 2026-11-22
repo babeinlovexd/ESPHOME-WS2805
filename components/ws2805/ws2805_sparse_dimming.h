@@ -12,14 +12,15 @@ struct SparseDimmingPlan {
   float pwm_level;
   uint8_t step;
 
-  float apply(float channel) const {
+  float apply_unscaled(float channel) const {
     if (brightness <= 0.0f || channel <= 0.0f)
       return 0.0f;
     if (brightness >= 1.0f)
       return std::min(channel, 1.0f);
-    // Divide first, rather than multiplying by 1/brightness: even very small
-    // positive inputs must not overflow the scale or turn zero channels into NaN.
-    return std::min(channel / brightness, 1.0f) * (pwm_level / 255.0f);
+    // Read channels with global brightness set to one instead of recovering
+    // channel/brightness. That recovery jitters across half-LSB boundaries
+    // for mixed colors, even when their requested color ratio is constant.
+    return std::min(channel, 1.0f) * (pwm_level / 255.0f);
   }
 };
 
@@ -44,7 +45,7 @@ inline SparseDimmingPlan make_sparse_dimming_plan(float brightness, uint8_t max_
   const float pwm_level = static_cast<float>(floor_pwm) +
                           (level - max_step) * ((255.0f - static_cast<float>(floor_pwm)) /
                                                 (255.0f - max_step));
-  return {brightness, pwm_level, 1};
+  return {brightness, std::min(255.0f, pwm_level), 1};
 }
 
 }  // namespace ws2805

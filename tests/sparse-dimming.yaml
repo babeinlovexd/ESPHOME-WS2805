@@ -17,8 +17,16 @@ external_components:
 light:
   - platform: ws2805
     id: sparse_light
+    output_id: sparse_output
     name: "Sparse Dimming Test"
     pin: GPIO18
     num_leds: 50
     sparse_dimming: true
     sparse_max_step: 8
+    sparse_floor_pwm: 2
+
+sensor:
+  - platform: template
+    name: "WS2805 frame bytes"
+    lambda: return id(sparse_output).get_frame_bytes();
+    update_interval: 60s

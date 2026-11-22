@@ -1,3 +1,13 @@
+# ESPHome WS2805 v0.6.11
+
+- Add configurable sparse_floor_pwm (default 2; set 1 for the previous sparse minimum). Sparse dimming remains disabled by default.
+- Remove brightness-ratio recovery to keep mixed colors stable at PWM rounding boundaries; keep strict monotonic regression tests.
+- Correct zero-bit timing to 300/975 ns and retain the in-spec 800/800 ns one-bit timing.
+- Validate RMT symbol representability and calculate transmit timeouts from actual rounded timings for long strips.
+- Synchronize user documentation and cover floors, mixed colors, fades, timing conversion and packet lengths in native tests.
+
+---
+
 # ESPHome WS2805 v0.6.10
 
 - Add optional sparse dimming from PR #61 (disabled by default): low brightness lights a centered subset of pixels.

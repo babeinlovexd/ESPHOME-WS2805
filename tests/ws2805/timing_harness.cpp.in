@@ -1,0 +1,66 @@
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+
+static uint32_t test_frequency;
+static int test_errors=0,test_warnings=0;
+#define ESP_LOGCONFIG(...) do {} while (0)
+#define ESP_LOGE(...) (++test_errors)
+#define ESP_LOGW(...) (++test_warnings)
+// Same 15-bit duration layout as IDF RMT symbol/item types.
+struct Symbol { uint32_t duration0:15,level0:1,duration1:15,level1:1; };
+struct LedParams { Symbol bit0,bit1,reset; };
+class WS2805LightOutput {
+ public:
+  uint16_t num_leds_{42};
+  LedParams params_{};
+  uint32_t rmt_clock_hz_{0};
+@@CONFIG_FIELDS@@
+  static uint32_t rmt_resolution_hz_() { return test_frequency; }
+  bool calc_timing_();
+@@TIMEOUT@@
+};
+@@TIMING@@
+int main() {
+  const uint32_t schema[]={@@SCHEMA_TIMINGS@@};
+  WS2805LightOutput defaults;
+  const uint32_t member_defaults[]={defaults.bit0_high_ns_,defaults.bit0_low_ns_,defaults.bit1_high_ns_,defaults.bit1_low_ns_,defaults.reset_pulse_us_};
+  for(int i=0;i<5;i++)assert(schema[i]==member_defaults[i]);
+  for(uint32_t frequency:{10000000u,20000000u,32000000u,40000000u,80000000u,160000000u}) {
+    test_frequency=frequency;WS2805LightOutput output;
+    assert(output.calc_timing_());
+    const auto ns=[frequency](uint32_t ticks){return ticks*1e9/double(frequency);};
+    assert(ns(output.params_.bit0.duration0)>=220 && ns(output.params_.bit0.duration0)<=380);
+    assert(ns(output.params_.bit0.duration1)>=580 && ns(output.params_.bit0.duration1)<=1000);
+    assert(ns(output.params_.bit1.duration0)>=580 && ns(output.params_.bit1.duration0)<=1000);
+    assert(ns(output.params_.bit1.duration1)>=580 && ns(output.params_.bit1.duration1)<=1000);
+    assert(ns(output.params_.bit0.duration0+output.params_.bit0.duration1)>=1250);
+    assert(ns(output.params_.bit1.duration0+output.params_.bit1.duration1)>=1250);
+    assert(ns(output.params_.reset.duration0+output.params_.reset.duration1)>280000);
+    assert(output.params_.bit0.level0==1 && output.params_.bit0.level1==0);
+    assert(output.params_.bit1.level0==1 && output.params_.bit1.level1==0);
+    assert(output.params_.reset.level0==0 && output.params_.reset.level1==0);
+    for(uint16_t pixels:std::array<uint16_t,5>{{1,42,1000,6000,65535}}) {
+      output.num_leds_=pixels;
+      const uint64_t longest=std::max(output.params_.bit0.duration0+output.params_.bit0.duration1,
+                                     output.params_.bit1.duration0+output.params_.bit1.duration1);
+      const double wire_ms=(longest*40*pixels+output.params_.reset.duration0+output.params_.reset.duration1)*1000.0/frequency;
+      assert(output.tx_timeout_ms_()>=wire_ms+50);
+    }
+  }
+  test_frequency=80000000;WS2805LightOutput long_frame;assert(long_frame.calc_timing_());
+  long_frame.num_leds_=6000;assert(long_frame.tx_timeout_ms_()==435);
+  WS2805LightOutput zero_tick;zero_tick.bit0_high_ns_=1;assert(!zero_tick.calc_timing_());
+  WS2805LightOutput overflow;overflow.bit1_high_ns_=std::numeric_limits<uint32_t>::max();assert(!overflow.calc_timing_());
+  WS2805LightOutput reset;reset.reset_pulse_us_=500;assert(reset.calc_timing_());
+  assert(reset.params_.reset.duration0==32767 && reset.params_.reset.duration1==7233);
+  reset.reset_pulse_us_=std::numeric_limits<uint32_t>::max();assert(reset.calc_timing_());
+  assert(reset.params_.reset.duration0==32767 && reset.params_.reset.duration1==32767 && test_warnings==1);
+  test_frequency=0;WS2805LightOutput bad_clock;assert(!bad_clock.calc_timing_());
+  assert(test_errors==3);
+  std::cout<<"Timing: schema/C++ defaults, 6 clocks, data-sheet windows, reset, overflow and long frames passed\n";
+}
