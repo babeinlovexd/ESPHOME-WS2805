@@ -21,6 +21,7 @@ CONF_FDIN_PIN = "fdin_pin"
 CONF_ISR_PRIORITY = "isr_priority"
 CONF_RMT_PREENCODE = "rmt_preencode"
 CONF_RMT_NO_DMA_BLOCKS = "rmt_no_dma_blocks"
+CONF_SPARSE_DIMMING = "sparse_dimming"
 CHANNEL_ORDERS = {
     "RGBWWCW": (0, 1, 2, 3, 4),
     "RGBCWWW": (0, 1, 2, 4, 3),
@@ -107,6 +108,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional(CONF_ISR_PRIORITY, default=3): cv.int_range(min=1, max=3),
     cv.Optional(CONF_RMT_PREENCODE, default=False): cv.boolean,
     cv.Optional(CONF_RMT_NO_DMA_BLOCKS, default=2): cv.one_of(2, 4, int=True),
+    cv.Optional(CONF_SPARSE_DIMMING, default=False): cv.boolean,
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -150,3 +152,5 @@ async def to_code(config):
         cg.add(var.set_rmt_preencode(True))
     if config[CONF_RMT_NO_DMA_BLOCKS] == 4:
         cg.add(var.set_rmt_no_dma_blocks(4))
+    if config[CONF_SPARSE_DIMMING]:
+        cg.add(var.set_sparse_dimming(True))

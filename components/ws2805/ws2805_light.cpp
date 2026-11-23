@@ -1,4 +1,5 @@
 #include "ws2805_light.h"
+#include "ws2805_sparse_dimming.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include <algorithm>
@@ -321,10 +322,32 @@ void WS2805LightOutput::transmit_clear_frame_() {
 void WS2805LightOutput::write_state(light::LightState *state) {
   if (this->buf_ == nullptr || !this->setup_complete_) return;
 
+  const bool addressable_effect = this->is_effect_active();
+  const bool sparse = this->sparse_dimming_ && !addressable_effect && state->get_current_effect_index() == 0;
+  const auto &requested = state->remote_values;
+  const float brightness = requested.get_brightness();
   float target_r, target_g, target_b, target_cw, target_ww;
-  this->read_target_values_(state, target_r, target_g, target_b, target_cw, target_ww);
+  if (sparse && requested.is_on() && brightness > 0.0f) {
+    auto unscaled = requested;
+    // Keep the selected mode and channel ratios while replacing global brightness.
+    unscaled.set_brightness(1.0f);
+    this->read_target_values_(unscaled, target_r, target_g, target_b, target_cw, target_ww);
+    const auto plan = make_sparse_dimming_plan(brightness);
+    if (target_r > 0 || target_g > 0 || target_b > 0 || target_cw > 0 || target_ww > 0)
+      this->sparse_step_ = plan.step;
+    target_r = plan.apply_unscaled(target_r);
+    target_g = plan.apply_unscaled(target_g);
+    target_b = plan.apply_unscaled(target_b);
+    target_cw = plan.apply_unscaled(target_cw);
+    target_ww = plan.apply_unscaled(target_ww);
+  } else {
+    this->read_target_values_(requested, target_r, target_g, target_b, target_cw, target_ww);
+    // When switching off, keep the previous mask while the white channels fade.
+    if (!sparse)
+      this->sparse_step_ = 1;
+  }
 
-  if (this->is_effect_active()) {
+  if (addressable_effect) {
     if (this->effect_whites_suppressed_) {
       if (!this->effect_whites_captured_) {
         this->suppressed_cw_ = target_cw;
@@ -375,7 +398,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   uint8_t g8 = static_cast<uint8_t>(std::round(target_g * 255.0f));
   uint8_t b8 = static_cast<uint8_t>(std::round(target_b * 255.0f));
 
-  if (this->is_effect_active()) {
+  if (addressable_effect) {
     int n = this->size();
     for (int i = 0; i < n; i++) {
       uint8_t *p = this->buf_ + BYTES_PER_LED * i;
@@ -388,7 +411,7 @@ void WS2805LightOutput::write_state(light::LightState *state) {
       p[this->offset_w2_] = cw;
     }
   } else {
-    this->fill_led_buffer_(r8, g8, b8, ww, cw);
+    this->fill_led_buffer_(r8, g8, b8, ww, cw, this->sparse_step_);
   }
 
   this->mark_shown_();
@@ -402,8 +425,9 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   }
 }
 
-void WS2805LightOutput::read_target_values_(light::LightState *state, float &r, float &g, float &b, float &cw, float &ww) {
-  state->remote_values.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
+void WS2805LightOutput::read_target_values_(const light::LightColorValues &values, float &r, float &g, float &b,
+                                           float &cw, float &ww) {
+  values.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
 
   // Color interlock: whites and RGB cannot be active simultaneously.
   // If whites are set (via CWWW, COLOR_TEMP, or our fallback) → kill RGB.
@@ -512,9 +536,11 @@ void WS2805LightOutput::clear_white_state_() {
   this->error_ww_ = 0.0f;
 }
 
-void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw) {
-  int n = this->size();
-  for (int i = 0; i < n; i++) {
+void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step) {
+  const int32_t n = this->size();
+  if (step > 1)
+    memset(this->buf_, 0, this->frame_bytes_());
+  for (int32_t i = sparse_first_pixel(n, step); i < n; i += step) {
     uint8_t *p = this->buf_ + BYTES_PER_LED * i;
     p[this->offset_r_] = r;
     p[this->offset_g_] = g;

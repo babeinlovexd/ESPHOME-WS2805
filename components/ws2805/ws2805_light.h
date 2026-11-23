@@ -106,6 +106,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_isr_priority(uint8_t priority) { this->isr_priority_ = priority; }
   void set_rmt_preencode(bool enabled) { this->rmt_preencode_ = enabled; }
   void set_rmt_no_dma_blocks(uint8_t count) { this->rmt_no_dma_blocks_ = count; }
+  void set_sparse_dimming(bool enabled) { this->sparse_dimming_ = enabled; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
@@ -165,12 +166,12 @@ class WS2805LightOutput : public light::AddressableLight {
   void transmit_clear_frame_();
 
   // ── write_state() helpers (callstack order) ──
-  void read_target_values_(light::LightState *state, float &r, float &g, float &b, float &cw, float &ww);
+  void read_target_values_(const light::LightColorValues &values, float &r, float &g, float &b, float &cw, float &ww);
   void update_white_transition_(float target_cw, float target_ww, float dt);
   static void step_channel_(float &current, float target, float step, float dt);
   void compute_white_bytes_(bool is_fading, uint8_t &cw, uint8_t &ww);
   void clear_white_state_();
-  void fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw);
+  void fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step);
   size_t encode_buffer_();
   bool encode_and_transmit_();
 
@@ -221,6 +222,8 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
   bool dithering_{false};
   bool constant_brightness_{false};
+  bool sparse_dimming_{false};
+  uint8_t sparse_step_{1};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
   bool effect_whites_suppressed_{false};
