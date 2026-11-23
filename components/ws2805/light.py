@@ -20,6 +20,7 @@ CONF_DIN_PIN = "din_pin"
 CONF_FDIN_PIN = "fdin_pin"
 CONF_ISR_PRIORITY = "isr_priority"
 CONF_RMT_PREENCODE = "rmt_preencode"
+CONF_RMT_NO_DMA_BLOCKS = "rmt_no_dma_blocks"
 CHANNEL_ORDERS = {
     "RGBWWCW": (0, 1, 2, 3, 4),
     "RGBCWWW": (0, 1, 2, 4, 3),
@@ -46,17 +47,40 @@ def validate_rmt_usage(config):
     else:
         max_channels = 8
 
-    if "ws2805" not in CORE.data:
-        CORE.data["ws2805"] = 0
-    CORE.data["ws2805"] += 1
-
-    if CORE.data["ws2805"] > max_channels:
+    instances = CORE.data.get("ws2805", 0) + 1
+    if instances > max_channels:
         raise cv.Invalid(
-            f"Too many WS2805 instances ({CORE.data['ws2805']}) for {variant}. "
+            f"Too many WS2805 instances ({instances}) for {variant}. "
             f"The hardware supports a maximum of {max_channels} RMT channels."
         )
 
+    validate_expert_rmt_usage(config, variant)
+    CORE.data["ws2805"] = instances
     return config
+
+def validate_expert_rmt_usage(config, variant):
+    # This lower bound covers known non-DMA targets. The actual RMT driver
+    # also accounts for contiguous memory, channel direction and other users.
+    if variant == const.VARIANT_ESP32:
+        block_limit = 8
+    elif variant in (const.VARIANT_ESP32S2, const.VARIANT_ESP32C3,
+                     const.VARIANT_ESP32C5, const.VARIANT_ESP32C6, const.VARIANT_ESP32H2):
+        block_limit = 4
+    else:
+        return
+
+    blocks = config.get(CONF_RMT_NO_DMA_BLOCKS, 2)
+    has_fdin = bool(config.get(CONF_FDIN_PIN, {}).get(CONF_NUMBER, 0))
+    used, expert_enabled = CORE.data.get("ws2805_rmt_blocks", (0, False))
+    requested = used + blocks * (2 if has_fdin else 1)
+    expert_enabled = expert_enabled or blocks == 4
+    # Preserve existing validation for default-only configurations and IDF 4.x.
+    if expert_enabled and requested > block_limit and esp32.idf_version() >= cv.Version(5, 0, 0):
+        raise cv.Invalid(
+            f"WS2805 DIN/FDIN outputs require {requested} RMT blocks, but {variant} has "
+            f"{block_limit}. Use rmt_no_dma_blocks: 2 or reduce the number of outputs."
+        )
+    CORE.data["ws2805_rmt_blocks"] = (requested, expert_enabled)
 
 CONFIG_SCHEMA = cv.All(
     light.ADDRESSABLE_LIGHT_SCHEMA.extend({
@@ -82,6 +106,7 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional("reset_pulse_us", default=300): cv.positive_int,
     cv.Optional(CONF_ISR_PRIORITY, default=3): cv.int_range(min=1, max=3),
     cv.Optional(CONF_RMT_PREENCODE, default=False): cv.boolean,
+    cv.Optional(CONF_RMT_NO_DMA_BLOCKS, default=2): cv.one_of(2, 4, int=True),
 }).extend(cv.COMPONENT_SCHEMA),
     validate_rmt_usage
 )
@@ -123,3 +148,5 @@ async def to_code(config):
         cg.add(var.set_isr_priority(config[CONF_ISR_PRIORITY]))
     if config[CONF_RMT_PREENCODE]:
         cg.add(var.set_rmt_preencode(True))
+    if config[CONF_RMT_NO_DMA_BLOCKS] == 4:
+        cg.add(var.set_rmt_no_dma_blocks(4))

@@ -18,6 +18,13 @@ static const size_t RMT_SYMBOLS_PER_BYTE = 8;
 //  setup() — orchestrates buffer allocation → RMT init → timing → boot clear
 // ─────────────────────────────────────────────────────────────────────────────
 void WS2805LightOutput::setup() {
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
+  if (this->rmt_no_dma_blocks_ == 4)
+    ESP_LOGW(TAG, "rmt_no_dma_blocks: 4 requires ESP-IDF 5 or newer");
+#elif SOC_RMT_SUPPORT_DMA
+  if (this->rmt_no_dma_blocks_ == 4)
+    ESP_LOGW(TAG, "rmt_no_dma_blocks: 4 applies only to RMT transmission without DMA");
+#endif
   if (!this->allocate_buffers_()) {
     this->mark_failed();
     this->cleanup_();
@@ -141,27 +148,26 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   // Capability-detect DMA and memory sizing from the SoC caps so every build
   // target is handled correctly — not just the ones we enumerate by name.
 #if SOC_RMT_SUPPORT_DMA
-  // DMA refills the transmitter without CPU involvement, so an ISR-starved
-  // refill can't underrun the line; a modest buffer is plenty. Keep it a
-  // multiple of the per-channel word count so it's valid on every DMA target.
+  // The DMA path uses its existing dedicated buffer size.
   channel_cfg.flags.with_dma = 1;
   channel_cfg.mem_block_symbols = 4 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
 #else
-  // No DMA: the frame streams through on-chip RMT memory blocks, refilled by the
-  // ISR mid-frame. Two blocks give headroom so a late refill (WiFi/BLE/web_server
-  // ISR contention) can't underrun the data line — an underrun stalls it high and
-  // downstream WS2805 chips latch 0xFF on every channel = full white.
+  // Four blocks extend the refill interval but leave fewer RMT resources
+  // available for other outputs. Each DIN/FDIN channel reserves its own blocks.
   channel_cfg.flags.with_dma = 0;
-  channel_cfg.mem_block_symbols = 2 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
+  channel_cfg.mem_block_symbols = this->rmt_no_dma_blocks_ * SOC_RMT_MEM_WORDS_PER_CHANNEL;
 #endif
-  // Give the RMT refill ISR high priority so it preempts the WiFi/BLE stack.
-  // At priority 0 (low) a busy radio starves the refill and the strip glitches
-  // to white mid-frame. 3 is the highest priority available to a C-level ISR.
+  // Use the configured interrupt priority for timely refills.
   channel_cfg.intr_priority = this->isr_priority_;
 
   esp_err_t err = rmt_new_tx_channel(&channel_cfg, &channel);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "%s channel creation failed", name);
+    ESP_LOGE(TAG, "%s RMT channel creation failed (%zu symbols): %s",
+             name, channel_cfg.mem_block_symbols, esp_err_to_name(err));
+#if !SOC_RMT_SUPPORT_DMA
+    if (err == ESP_ERR_NOT_FOUND && this->rmt_no_dma_blocks_ == 4)
+      ESP_LOGE(TAG, "Try rmt_no_dma_blocks: 2 or reduce other RMT usage");
+#endif
     return false;
   }
 

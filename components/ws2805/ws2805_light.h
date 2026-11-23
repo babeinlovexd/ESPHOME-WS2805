@@ -105,6 +105,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_reset_pulse_us(uint32_t us) { this->reset_pulse_us_ = us; }
   void set_isr_priority(uint8_t priority) { this->isr_priority_ = priority; }
   void set_rmt_preencode(bool enabled) { this->rmt_preencode_ = enabled; }
+  void set_rmt_no_dma_blocks(uint8_t count) { this->rmt_no_dma_blocks_ = count; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
@@ -237,6 +238,7 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t reset_pulse_us_{300}; // spec: ≥280µs (24000 ticks @ 80MHz)
   uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
   bool rmt_preencode_{false};
+  uint8_t rmt_no_dma_blocks_{2};
 
   uint8_t *buf_{nullptr};
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
