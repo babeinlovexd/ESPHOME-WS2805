@@ -1,3 +1,12 @@
+# ESPHome WS2805 v0.6.13
+
+- Extend the default zero bit to 300/975 ns so the total duration meets the WS2805 timing specification.
+- Add optional RMT pre-encoding on ESP-IDF 5.3+ and a four-block allocation for eligible RMT outputs without DMA. The existing encoder and memory allocation remain the defaults.
+- Add optional sparse dimming for low-level static lighting. The brightness curve joins the full-strip range without a drop at the boundary.
+- Document when to try a complete power cycle after an OTA update and explain the resource requirements of the expert options.
+
+---
+
 # ESPHome WS2805 v0.6.8
 
 - Kompatibilität mit ESPHome 2026.11.0: neuer ESPColorAccessor für das WS2805-Fünf-Byte-Format. RGB-Effekte greifen ausschließlich auf RGB und ihre separaten Effektdaten zu; WW/CW bleiben global gesteuert.
