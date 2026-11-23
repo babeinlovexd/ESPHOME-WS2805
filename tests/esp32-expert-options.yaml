@@ -22,6 +22,7 @@ light:
     num_leds: 24
     rmt_preencode: true
     sparse_dimming: true
+    color_correct: ["50%", "25%", "100%"]
     effects:
       - addressable_rainbow:
   - platform: ws2805

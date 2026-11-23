@@ -86,7 +86,9 @@ The optional ESPHome `power_supply` setting can switch the strip's supply. ESPHo
 
 DIN and FDIN each use an RMT output. Use GPIOs that support non-inverted, push-pull output on your board. The number of outputs depends on the ESP32 variant, the memory reserved per output and other RMT components on the device.
 
-On ESP32 variants with RMT DMA, the first WS2805 DIN output uses DMA. FDIN and any additional WS2805 DIN outputs use RMT hardware memory. If the optional FDIN output cannot be initialized, the component logs the failure and continues through DIN.
+On ESP32 variants with RMT DMA, the first WS2805 DIN output uses DMA. FDIN and any additional WS2805 DIN outputs use RMT hardware memory. ESPHome rejects WS2805 configurations that exceed the known RMT capacity of the selected chip. If an optional FDIN output fails to initialize at startup, the component logs the failure and continues through DIN.
+
+After a synchronized FDIN transmission error, chips with supported asynchronous RMT stop can recover on DIN alone. The log records whether the current transmission was stopped safely and the output could resume. A restart allows the driver to initialize FDIN again.
 
 With the default allocations on ESP-IDF 5 or later and no other RMT devices, an ESP32-C3 or ESP32-C6 has room for a single WS2805 DIN output. An ESP32-S3 can use one DMA DIN output and one additional non-DMA output. The additional output can serve another strip or the backup input of the first strip.
 
@@ -101,7 +103,7 @@ Try one setting at a time if you see short flashes or wrong colors under load. F
 
 ### Sparse dimming
 
-Set `sparse_dimming: true` for a static night light. This setting uses raw PWM values for static colors, so their brightness can look different from normal gamma-corrected output. At the bottom of the range, a subset of the pixels lights up at a reference PWM level of 1 for a fully requested channel. Dimmer channel values in a color mix may round to zero.
+Set `sparse_dimming: true` for a static night light. The sparse curve uses raw PWM values and applies the RGB factors set with `color_correct`. At the bottom of the range, a subset of the pixels lights up at a reference PWM level of 1 for a fully requested channel before RGB correction. Small channel values may round to zero.
 
 The pattern uses a maximum spacing of eight pixels. The number and positions of illuminated pixels can change as you dim. A diffuser can make the pattern less visible. The controller still sends data for every pixel. Sparse dimming is bypassed while a light effect is active.
 

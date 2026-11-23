@@ -88,12 +88,39 @@ jobs:
         g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
           -Icomponents/ws2805 tests/ws2805/test_sparse_dimming.cpp -o "$RUNNER_TEMP/test_sparse_dimming"
         "$RUNNER_TEMP/test_sparse_dimming"
+    - name: Check pulse conversion and frame deadline
+      run: |
+        g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+          -Icomponents/ws2805 tests/ws2805/test_timing.cpp -o "$RUNNER_TEMP/test_timing"
+        "$RUNNER_TEMP/test_timing"
+  esphome-host:
+    name: ESPHome ${{ matrix.esphome }} / schema and driver regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        esphome: ['2026.10.2', '2026.11.0']
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+    - name: Install ESPHome version under test
+      env:
+        ESPHOME_VERSION: ${{ matrix.esphome }}
+      run: python -m pip install "esphome==$ESPHOME_VERSION"
+    - name: Validate real ESPHome configurations
+      run: python tests/ws2805/check_esphome_config.py
+    - name: Check rendered frames and RMT error recovery
+      run: python tests/ws2805/test_render_host.py
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
     - source
     - esphome
     - tests
+    - esphome-host
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

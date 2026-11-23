@@ -86,7 +86,9 @@ Aktiviere `api:` in der Gerätekonfiguration und füge das Gerät über die [ESP
 
 DIN und FDIN beanspruchen jeweils einen RMT-Ausgang. Verwende GPIOs, die auf deinem Board als nicht invertierte Push-Pull-Ausgänge nutzbar sind. Die verfügbaren Ausgänge hängen von der ESP32-Variante, dem reservierten Speicher je Ausgang und weiteren RMT-Komponenten auf dem Gerät ab.
 
-Auf ESP32-Varianten mit RMT-DMA nutzt der erste WS2805-DIN-Ausgang DMA. FDIN und weitere WS2805-DIN-Ausgänge verwenden den RMT-Hardwarespeicher. Schlägt die Einrichtung des optionalen FDIN-Ausgangs fehl, protokolliert die Komponente den Fehler und verwendet weiterhin DIN.
+Auf ESP32-Varianten mit RMT-DMA nutzt der erste WS2805-DIN-Ausgang DMA. FDIN und weitere WS2805-DIN-Ausgänge verwenden den RMT-Hardwarespeicher. ESPHome lehnt WS2805-Konfigurationen ab, die die bekannten RMT-Ressourcen des gewählten Chips überschreiten. Schlägt die Einrichtung des optionalen FDIN-Ausgangs beim Start fehl, protokolliert die Komponente den Fehler und verwendet weiterhin DIN.
+
+Nach einem synchronisierten FDIN-Sendefehler können Chips mit asynchronem RMT-Stopp allein über DIN weitersenden. Das Protokoll zeigt, ob der Treiber die laufende Übertragung sicher abbrechen und DIN wieder aktivieren konnte. Bei einem Neustart richtet er FDIN erneut ein.
 
 Ab ESP-IDF 5 hat ein ESP32-C3 oder ESP32-C6 mit den Standardeinstellungen und ohne weitere RMT-Geräte Platz für einen WS2805-DIN-Ausgang. Ein ESP32-S3 kann einen DIN-Ausgang mit DMA und einen weiteren Ausgang ohne DMA nutzen. Der weitere Ausgang kann einen zweiten Streifen oder den Reserveeingang des ersten Streifens ansteuern.
 
@@ -101,7 +103,7 @@ Teste bei kurzem Aufblitzen oder falschen Farben unter Last jeweils eine Einstel
 
 ### Sparse-Dimming
 
-Aktiviere `sparse_dimming: true` für ein statisches Nachtlicht. Die Einstellung verwendet rohe PWM-Werte für feste Farben. Dadurch kann sich die Helligkeit von der üblichen gammakorrigierten Ausgabe unterscheiden. Im untersten Helligkeitsbereich leuchtet nur ein Teil der Pixel. Für einen voll angeforderten Kanal gilt dort die PWM-Referenz 1. Schwächere Kanalanteile in Mischfarben können auf null gerundet werden.
+Aktiviere `sparse_dimming: true` für ein statisches Nachtlicht. Die Kurve verwendet rohe PWM-Werte und berücksichtigt die RGB-Faktoren aus `color_correct`. Im untersten Helligkeitsbereich leuchtet nur ein Teil der Pixel. Für einen voll angeforderten Kanal gilt vor der RGB-Korrektur die PWM-Referenz 1. Kleine Kanalwerte können auf null gerundet werden.
 
 Der maximale Abstand im Muster beträgt acht Pixel. Beim Dimmen können sich Anzahl und Position der leuchtenden Pixel ändern. Ein Diffusor kann das Muster weniger sichtbar machen. Der Controller sendet weiterhin Daten für alle Pixel. Während eines Lichteffekts greift Sparse-Dimming nicht.
 

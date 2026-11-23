@@ -208,6 +208,7 @@ def validate_rmt_usage(config):
 
 
 DATA_PIN_SCHEMA = cv.All(pins.internal_gpio_output_pin_schema, validate_output_pin)
+TIMING_VALUE_SCHEMA = cv.int_range(min=1, max=0xFFFFFFFF)
 FINAL_VALIDATE_SCHEMA = validate_rmt_usage
 
 CONFIG_SCHEMA = cv.All(
@@ -233,11 +234,11 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional("dithering", default=False): cv.boolean,
             # The RMT resolution is auto-detected per build target.
-            cv.Optional("bit0_high_ns", default=300): cv.positive_int,
-            cv.Optional("bit0_low_ns", default=975): cv.positive_int,
-            cv.Optional("bit1_high_ns", default=800): cv.positive_int,
-            cv.Optional("bit1_low_ns", default=800): cv.positive_int,
-            cv.Optional("reset_pulse_us", default=300): cv.positive_int,
+            cv.Optional("bit0_high_ns", default=300): TIMING_VALUE_SCHEMA,
+            cv.Optional("bit0_low_ns", default=975): TIMING_VALUE_SCHEMA,
+            cv.Optional("bit1_high_ns", default=800): TIMING_VALUE_SCHEMA,
+            cv.Optional("bit1_low_ns", default=800): TIMING_VALUE_SCHEMA,
+            cv.Optional("reset_pulse_us", default=300): TIMING_VALUE_SCHEMA,
             cv.Optional(CONF_ISR_PRIORITY, default=3): cv.int_range(min=0, max=3),
             cv.Optional(CONF_RMT_PREENCODE, default=False): cv.boolean,
             cv.Optional(CONF_RMT_NO_DMA_BLOCKS, default=2): cv.one_of(2, 4, int=True),

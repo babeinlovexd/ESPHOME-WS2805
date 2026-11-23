@@ -42,7 +42,7 @@ The [transmission options](README.md#transmission-tuning) adjust the work and me
 
 Set `sparse_dimming: true` in a `ws2805` light entry to dim static light below the level produced by lighting the entire strip at the lowest PWM code. At very low brightness, selected pixels light up and the remaining pixels stay dark. With the maximum spacing of eight pixels, three of 24 addressable pixels can light up at the lowest nonzero setting for a fully requested channel. Increasing brightness reduces the spacing and eventually increases the PWM level across the whole strip.
 
-Sparse dimming uses raw PWM values for static colors. The low-level reference is PWM 1 for a fully requested color or white channel. A weaker contribution can round to zero and change the appearance of a color mix. The illuminated positions can shift as the spacing changes. Sparse dimming is bypassed while a light effect is active. Each transmission still contains data for every pixel.
+Sparse dimming uses raw PWM values for static colors. The low-level reference is PWM 1 for a fully requested channel before applying the RGB channel factors from `color_correct`. Small channel values can round to zero and change the appearance of a color mix. The illuminated positions can shift as the spacing changes. Sparse dimming is bypassed while a light effect is active. Each transmission still contains data for every pixel.
 
 ## Advanced timing
 

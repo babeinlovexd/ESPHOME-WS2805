@@ -1,5 +1,6 @@
 #include "ws2805_light.h"
 #include "ws2805_sparse_dimming.h"
+#include "ws2805_timing.h"
 #include "esphome/components/light/transformers.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -8,6 +9,9 @@
 #include <esp_heap_caps.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "soc/soc_caps.h"  // SOC_RMT_SUPPORT_DMA, SOC_RMT_MEM_WORDS_PER_CHANNEL
+#if __has_include("esp_private/rmt.h")
+#include "esp_private/rmt.h"
+#endif
 #endif
 
 namespace esphome {
@@ -17,7 +21,7 @@ static const char *const TAG = "ws2805";
 static const size_t RMT_SYMBOLS_PER_BYTE = 8;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  setup() — orchestrates buffer allocation → RMT init → timing → boot clear
+//  setup() — validate timing → allocate buffers → initialize RMT → clear strip
 // ─────────────────────────────────────────────────────────────────────────────
 void WS2805LightOutput::setup() {
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
@@ -27,14 +31,16 @@ void WS2805LightOutput::setup() {
   if (this->rmt_no_dma_blocks_ == 4 && this->use_dma_ && this->fdin_pin_ < 0)
     ESP_LOGW(TAG, "rmt_no_dma_blocks: 4 applies only to RMT transmission without DMA");
 #endif
-  if (!this->allocate_buffers_()) {
+  this->rmt_clock_hz_ = rmt_resolution_hz_();
+  if (!this->calc_timing_() || !this->allocate_buffers_()) {
     this->mark_failed();
     this->cleanup_();
     return;
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->use_dma_, this->din_channel_, this->din_encoder_)) {
+  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->use_dma_, this->din_channel_, this->din_encoder_,
+                               this->din_enabled_)) {
     this->mark_failed();
     this->cleanup_();
     return;
@@ -42,12 +48,13 @@ void WS2805LightOutput::setup() {
 
   // Reserve the DMA-capable TX channel for DIN. FDIN has its own RMT memory.
   if (this->fdin_pin_ >= 0 &&
-      !this->init_rmt_channel_(this->fdin_pin_, "FDIN", false, this->fdin_channel_, this->fdin_encoder_)) {
-    this->teardown_rmt_channel_(this->fdin_channel_, this->fdin_encoder_);
+      !this->init_rmt_channel_(this->fdin_pin_, "FDIN", false, this->fdin_channel_, this->fdin_encoder_,
+                               this->fdin_enabled_)) {
+    this->teardown_rmt_channel_("FDIN", this->fdin_channel_, this->fdin_encoder_, this->fdin_enabled_);
     ESP_LOGW(TAG, "FDIN backup unavailable on GPIO%d. Using DIN only.", this->fdin_pin_);
   }
 
-  if (this->fdin_channel_ != nullptr) {
+  if (this->fdin_enabled_) {
     // Where available, synchronize both channels carrying the same frame.
     // Otherwise the transmissions start back-to-back.
     rmt_channel_handle_t sync_channels[] = {this->din_channel_, this->fdin_channel_};
@@ -81,7 +88,6 @@ void WS2805LightOutput::setup() {
   }
 #endif
 
-  this->calc_timing_();
   this->setup_complete_ = true;
 
   // Send a full zero frame on boot to clear any chips left in an unknown state
@@ -131,10 +137,10 @@ bool WS2805LightOutput::allocate_buffers_() {
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 bool WS2805LightOutput::init_rmt_channel_(int pin, const char *name, bool use_dma, rmt_channel_handle_t &channel,
-                                          rmt_encoder_handle_t &encoder) {
+                                          rmt_encoder_handle_t &encoder, bool &enabled) {
   rmt_tx_channel_config_t channel_cfg{};
   channel_cfg.clk_src = RMT_CLK_SRC_DEFAULT;
-  channel_cfg.resolution_hz = rmt_resolution_hz_();
+  channel_cfg.resolution_hz = this->rmt_clock_hz_;
   channel_cfg.gpio_num = gpio_num_t(pin);
   channel_cfg.trans_queue_depth = 1;
 #if !SOC_RMT_SUPPORT_DMA
@@ -154,6 +160,28 @@ bool WS2805LightOutput::init_rmt_channel_(int pin, const char *name, bool use_dm
       ESP_LOGE(TAG, "Try rmt_no_dma_blocks: 2 or reduce other RMT usage");
     return false;
   }
+
+#if __has_include("esp_private/rmt.h")
+  // A channel that started earlier can leave the group with a lower resolution.
+  uint32_t actual_hz = 0;
+  err = rmt_get_channel_resolution(channel, &actual_hz);
+  if (err != ESP_OK || actual_hz == 0) {
+    ESP_LOGE(TAG, "Could not read the %s RMT resolution", name);
+    return false;
+  }
+  if (actual_hz != this->rmt_clock_hz_) {
+    if (channel != this->din_channel_) {
+      ESP_LOGW(TAG, "FDIN RMT resolution %" PRIu32 " Hz differs from DIN %" PRIu32 " Hz",
+               actual_hz, this->rmt_clock_hz_);
+      return false;
+    }
+    ESP_LOGW(TAG, "DIN RMT resolution adjusted from %" PRIu32 " to %" PRIu32 " Hz",
+             this->rmt_clock_hz_, actual_hz);
+    this->rmt_clock_hz_ = actual_hz;
+    if (!this->calc_timing_())
+      return false;
+  }
+#endif
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
   if (!this->rmt_preencode_) {
@@ -177,6 +205,7 @@ bool WS2805LightOutput::init_rmt_channel_(int pin, const char *name, bool use_dm
     ESP_LOGE(TAG, "Enabling %s channel failed", name);
     return false;
   }
+  enabled = true;
 
   ESP_LOGCONFIG(TAG, "  %s RMT on GPIO%d: %s, %zu symbols", name, pin,
                 use_dma ? "DMA" : "without DMA", channel_cfg.mem_block_symbols);
@@ -221,11 +250,8 @@ uint32_t WS2805LightOutput::rmt_resolution_hz_() {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   uint32_t freq = 0;
   if (esp_clk_tree_src_get_freq_hz((soc_module_clk_t) RMT_CLK_SRC_DEFAULT,
-                                   ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &freq) != ESP_OK ||
-      freq == 0) {
-    // Query failed — fall back to the 80MHz APB clock the RMT uses by default.
-    freq = 80000000;
-  }
+                                   ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &freq) != ESP_OK)
+    return 0;
   return freq;
 #else
   return 10000000;
@@ -267,32 +293,51 @@ size_t IRAM_ATTR HOT WS2805LightOutput::encoder_callback_(const void *data, size
 }
 #endif
 
-void WS2805LightOutput::calc_timing_() {
-  float ratio = (float) rmt_resolution_hz_() / 1e09f;
+bool WS2805LightOutput::calc_timing_() {
+  const uint32_t clock_hz = this->rmt_clock_hz_;
+  if (clock_hz == 0) {
+    ESP_LOGE(TAG, "Could not determine the RMT source clock");
+    return false;
+  }
+  ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz", clock_hz);
 
-  ESP_LOGCONFIG(TAG, "  RMT Resolution: %" PRIu32 " Hz (Ratio: %f)", rmt_resolution_hz_(), ratio);
+  const uint64_t bit0_high = ns_to_rmt_ticks(this->bit0_high_ns_, clock_hz);
+  const uint64_t bit0_low = ns_to_rmt_ticks(this->bit0_low_ns_, clock_hz);
+  const uint64_t bit1_high = ns_to_rmt_ticks(this->bit1_high_ns_, clock_hz);
+  const uint64_t bit1_low = ns_to_rmt_ticks(this->bit1_low_ns_, clock_hz);
+  if (!valid_rmt_pulse(bit0_high) || !valid_rmt_pulse(bit0_low) ||
+      !valid_rmt_pulse(bit1_high) || !valid_rmt_pulse(bit1_low)) {
+    ESP_LOGE(TAG, "Each high/low bit pulse must fit 1 to 32767 ticks at %" PRIu32 " Hz", clock_hz);
+    return false;
+  }
 
-  // Round to nearest tick — bounds error to ±0.5 ticks regardless of RMT clock freq
-  this->params_.bit0.duration0 = (uint32_t) (ratio * this->bit0_high_ns_ + 0.5f);
+  const auto reset = split_rmt_reset(us_to_rmt_ticks(this->reset_pulse_us_, clock_hz));
+  if (reset.first == 0) {
+    ESP_LOGE(TAG, "Reset pulse rounds to zero ticks at %" PRIu32 " Hz", clock_hz);
+    return false;
+  }
+  if (reset.clamped) {
+    ESP_LOGW(TAG, "Reset pulse limited to 65534 ticks at %" PRIu32 " Hz", clock_hz);
+  }
+
+  this->params_.bit0.duration0 = static_cast<uint16_t>(bit0_high);
   this->params_.bit0.level0 = 1;
-  this->params_.bit0.duration1 = (uint32_t) (ratio * this->bit0_low_ns_ + 0.5f);
+  this->params_.bit0.duration1 = static_cast<uint16_t>(bit0_low);
   this->params_.bit0.level1 = 0;
-  this->params_.bit1.duration0 = (uint32_t) (ratio * this->bit1_high_ns_ + 0.5f);
+  this->params_.bit1.duration0 = static_cast<uint16_t>(bit1_high);
   this->params_.bit1.level0 = 1;
-  this->params_.bit1.duration1 = (uint32_t) (ratio * this->bit1_low_ns_ + 0.5f);
+  this->params_.bit1.duration1 = static_cast<uint16_t>(bit1_low);
   this->params_.bit1.level1 = 0;
-  // RMT symbol duration fields are 15-bit (max 32767 ticks). A long reset can
-  // exceed that at high RMT resolutions (e.g. >409µs @ 80MHz), so split the low
-  // period across both halves of the symbol — both held low — to double the
-  // range, then clamp. Short resets keep duration1 = 0 (unchanged behavior).
-  uint32_t reset_ticks = (uint32_t) (ratio * this->reset_pulse_us_ * 1000.0f + 0.5f);
-  uint32_t reset_d0 = reset_ticks > 32767u ? 32767u : reset_ticks;
-  uint32_t reset_d1 = reset_ticks - reset_d0;
-  if (reset_d1 > 32767u) reset_d1 = 32767u;
-  this->params_.reset.duration0 = reset_d0;
+  // Both halves of the reset are held low; the second is empty for a short reset.
+  this->params_.reset.duration0 = reset.first;
   this->params_.reset.level0 = 0;
-  this->params_.reset.duration1 = reset_d1;
+  this->params_.reset.duration1 = reset.second;
   this->params_.reset.level1 = 0;
+
+  const auto max_bit_ticks = static_cast<uint16_t>(std::max(bit0_high + bit0_low, bit1_high + bit1_low));
+  this->rmt_tx_timeout_ms_ = rmt_frame_timeout_ms(clock_hz, this->frame_bytes_(), max_bit_ticks,
+                                                uint32_t(reset.first) + reset.second);
+  return true;
 }
 
 void WS2805LightOutput::transmit_clear_frame_() {
@@ -352,9 +397,10 @@ void WS2805LightOutput::update_sparse_state_(light::LightColorValues values, flo
   values.as_rgbww(&red, &green, &blue, &cold_white, &warm_white, this->constant_brightness_);
   this->cold_white_ = plan.apply_unscaled(cold_white);
   this->warm_white_ = plan.apply_unscaled(warm_white);
-  const auto r = light::to_uint8_scale(plan.apply_unscaled(red));
-  const auto g = light::to_uint8_scale(plan.apply_unscaled(green));
-  const auto b = light::to_uint8_scale(plan.apply_unscaled(blue));
+  // The sparse curve already sets brightness. Apply only the RGB channel scales.
+  const auto r = light::to_uint8_scale(plan.apply_unscaled(red) * this->sparse_red_scale_);
+  const auto g = light::to_uint8_scale(plan.apply_unscaled(green) * this->sparse_green_scale_);
+  const auto b = light::to_uint8_scale(plan.apply_unscaled(blue) * this->sparse_blue_scale_);
   int32_t next_lit = sparse_first_pixel(this->size(), plan.step);
   for (int32_t i = 0; i < this->size(); ++i) {
     uint8_t *pixel = this->buf_ + BYTES_PER_LED * i;
@@ -371,8 +417,15 @@ void WS2805LightOutput::write_state(light::LightState *state) {
   if (!this->setup_complete_)
     return;
 
-  uint8_t cw, ww;
-  if (this->dithering_ && state->is_transformer_active()) {
+  // An addressable effect owns RGB even on a black frame. Other per-pixel writers
+  // have no effect flag, so check the RGB buffer when white is requested.
+  const bool white_requested = this->cold_white_ > 0.0f || this->warm_white_ > 0.0f;
+  const bool suppress_white = this->color_interlock_ &&
+                              (this->is_effect_active() || (white_requested && this->has_rgb_pixels_()));
+  uint8_t cw = 0, ww = 0;
+  if (suppress_white) {
+    this->error_cw_ = this->error_ww_ = 0.0f;
+  } else if (this->dithering_ && state->is_transformer_active()) {
     cw = this->calculate_dither_(this->cold_white_ * 255.0f, this->error_cw_);
     ww = this->calculate_dither_(this->warm_white_ * 255.0f, this->error_ww_);
   } else {
@@ -382,9 +435,6 @@ void WS2805LightOutput::write_state(light::LightState *state) {
     this->error_ww_ = 0.0f;
   }
 
-  // Keep RGB written by effects, partitions and addressable_set intact.
-  if (this->color_interlock_ && (cw != 0 || ww != 0) && this->has_rgb_pixels_())
-    cw = ww = 0;
   this->write_whites_(cw, ww);
 
 #ifdef USE_POWER_SUPPLY
@@ -475,7 +525,7 @@ bool WS2805LightOutput::encode_and_transmit_() {
     this->status_set_warning();
     return false;
   }
-  if (this->fdin_channel_ != nullptr && rmt_tx_wait_all_done(this->fdin_channel_, timeout_ms) != ESP_OK) {
+  if (this->fdin_enabled_ && rmt_tx_wait_all_done(this->fdin_channel_, timeout_ms) != ESP_OK) {
     ESP_LOGE(TAG, "FDIN TX timeout");
     this->tx_error_count_++;
     this->status_set_warning();
@@ -495,8 +545,15 @@ bool WS2805LightOutput::encode_and_transmit_() {
 
   // Re-arm the sync manager so the two queued transmissions start together and
   // stay bit-aligned; the channels don't fire until both are queued.
-  if (this->sync_manager_ != nullptr)
-    rmt_sync_reset(this->sync_manager_);
+  if (this->sync_manager_ != nullptr) {
+    const esp_err_t err = rmt_sync_reset(this->sync_manager_);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "RMT sync reset failed: %s", esp_err_to_name(err));
+      this->tx_error_count_++;
+      this->status_set_warning();
+      return false;
+    }
+  }
 
   if (rmt_transmit(this->din_channel_, this->din_encoder_, this->rmt_buf_, tx_size, &config) != ESP_OK) {
     ESP_LOGE(TAG, "RMT TX error");
@@ -504,12 +561,16 @@ bool WS2805LightOutput::encode_and_transmit_() {
     this->status_set_warning();
     return false;
   }
-  if (this->fdin_channel_ != nullptr &&
-      rmt_transmit(this->fdin_channel_, this->fdin_encoder_, this->rmt_buf_, tx_size, &config) != ESP_OK) {
-    ESP_LOGE(TAG, "FDIN TX error");
-    this->tx_error_count_++;
-    this->status_set_warning();
-    return false;
+  if (this->fdin_enabled_) {
+    const esp_err_t err = rmt_transmit(this->fdin_channel_, this->fdin_encoder_, this->rmt_buf_, tx_size, &config);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "FDIN TX error: %s", esp_err_to_name(err));
+      this->tx_error_count_++;
+      this->status_set_warning();
+      if (this->sync_manager_ != nullptr)
+        this->recover_synced_fdin_();
+      return false;
+    }
   }
 
   if (rmt_tx_wait_all_done(this->din_channel_, timeout_ms) != ESP_OK) {
@@ -518,7 +579,7 @@ bool WS2805LightOutput::encode_and_transmit_() {
     this->status_set_warning();
     return false;
   }
-  if (this->fdin_channel_ != nullptr && rmt_tx_wait_all_done(this->fdin_channel_, timeout_ms) != ESP_OK) {
+  if (this->fdin_enabled_ && rmt_tx_wait_all_done(this->fdin_channel_, timeout_ms) != ESP_OK) {
     ESP_LOGE(TAG, "FDIN TX timeout");
     this->tx_error_count_++;
     this->status_set_warning();
@@ -542,6 +603,61 @@ bool WS2805LightOutput::encode_and_transmit_() {
   return true;
 }
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void WS2805LightOutput::recover_synced_fdin_() {
+#if SOC_RMT_SUPPORT_ASYNC_STOP || SOC_RMT_SUPPORT_TX_ASYNC_STOP
+  const auto failed = [this](const char *operation, esp_err_t err) {
+    if (err == ESP_OK)
+      return false;
+    ESP_LOGE(TAG, "RMT recovery failed while %s: %s. Stopping output.", operation, esp_err_to_name(err));
+    // Keep the payload alive and prevent any further writes to it.
+    this->setup_complete_ = false;
+    this->mark_failed();
+    return true;
+  };
+
+  // DIN has a submitted transaction waiting for FDIN. Remove the barrier and
+  // abort the transaction before reusing the shared payload.
+  if (failed("removing synchronization", rmt_del_sync_manager(this->sync_manager_)))
+    return;
+  this->sync_manager_ = nullptr;
+  if (failed("stopping DIN", rmt_disable(this->din_channel_)))
+    return;
+  this->din_enabled_ = false;
+  if (failed("draining DIN", rmt_tx_wait_all_done(this->din_channel_, 0)))
+    return;
+
+  if (failed("stopping FDIN", rmt_disable(this->fdin_channel_)))
+    return;
+  this->fdin_enabled_ = false;
+  if (failed("draining FDIN", rmt_tx_wait_all_done(this->fdin_channel_, 0)) ||
+      failed("removing FDIN", rmt_del_channel(this->fdin_channel_)))
+    return;
+  this->fdin_channel_ = nullptr;
+  if (failed("removing the FDIN encoder", rmt_del_encoder(this->fdin_encoder_)))
+    return;
+  this->fdin_encoder_ = nullptr;
+
+  if (failed("re-enabling DIN", rmt_enable(this->din_channel_)))
+    return;
+  this->din_enabled_ = true;
+
+  // An abort can have put a partial frame on the wire. Leave an idle-low latch
+  // interval before sending the latest frame, even with a shorter custom reset.
+  const uint64_t reset_ticks = static_cast<uint64_t>(this->params_.reset.duration0) + this->params_.reset.duration1;
+  const uint32_t reset_us = (reset_ticks * 1000000 + this->rmt_clock_hz_ - 1) / this->rmt_clock_hz_;
+  delay_microseconds_safe(std::max<uint32_t>(300, reset_us));
+  ESP_LOGW(TAG, "FDIN disabled after a synchronized TX failure. Using DIN only.");
+  if (this->state_parent_ != nullptr)
+    this->schedule_show();
+#else
+  ESP_LOGE(TAG, "Safe RMT abort is unavailable on this build. Stopping output after the FDIN TX failure.");
+  this->setup_complete_ = false;
+  this->mark_failed();
+#endif
+}
+#endif
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Teardown
 // ─────────────────────────────────────────────────────────────────────────────
@@ -558,18 +674,27 @@ void WS2805LightOutput::cleanup_() {
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   // The sync manager must be deleted before the channels it manages.
   if (this->sync_manager_ != nullptr) {
-    rmt_del_sync_manager(this->sync_manager_);
-    this->sync_manager_ = nullptr;
+    const esp_err_t err = rmt_del_sync_manager(this->sync_manager_);
+    if (err == ESP_OK)
+      this->sync_manager_ = nullptr;
+    else
+      ESP_LOGE(TAG, "Cannot remove RMT synchronization: %s", esp_err_to_name(err));
   }
-  this->teardown_rmt_channel_(this->din_channel_, this->din_encoder_);
-  this->teardown_rmt_channel_(this->fdin_channel_, this->fdin_encoder_);
+  if (this->sync_manager_ == nullptr) {
+    this->teardown_rmt_channel_("DIN", this->din_channel_, this->din_encoder_, this->din_enabled_);
+    this->teardown_rmt_channel_("FDIN", this->fdin_channel_, this->fdin_encoder_, this->fdin_enabled_);
+  }
+  const bool tx_released = this->din_channel_ == nullptr && this->fdin_channel_ == nullptr;
 #else
   this->teardown_rmt_channel_(this->din_channel_);
   this->teardown_rmt_channel_(this->fdin_channel_);
+  const bool tx_released = true;
 #endif
   // Both channels can reference the shared transmit buffer.
-  if (this->rmt_buf_) heap_caps_free(this->rmt_buf_);
-  this->rmt_buf_ = nullptr;
+  if (tx_released && this->rmt_buf_ != nullptr) {
+    heap_caps_free(this->rmt_buf_);
+    this->rmt_buf_ = nullptr;
+  }
   if (this->effect_data_) heap_caps_free(this->effect_data_);
   this->effect_data_ = nullptr;
   if (this->buf_) heap_caps_free(this->buf_);
@@ -577,15 +702,38 @@ void WS2805LightOutput::cleanup_() {
 }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-void WS2805LightOutput::teardown_rmt_channel_(rmt_channel_handle_t &channel, rmt_encoder_handle_t &encoder) {
-  if (channel) {
-    rmt_disable(channel);
-    rmt_del_channel(channel);
+void WS2805LightOutput::teardown_rmt_channel_(const char *name, rmt_channel_handle_t &channel,
+                                              rmt_encoder_handle_t &encoder, bool &enabled) {
+  if (channel != nullptr) {
+    if (enabled) {
+#if !SOC_RMT_SUPPORT_ASYNC_STOP && !SOC_RMT_SUPPORT_TX_ASYNC_STOP
+      // On targets without a verified async stop, disabling a pending
+      // transaction can wait inside the driver. Keep its resources alive.
+      if (rmt_tx_wait_all_done(channel, 0) != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot release %s RMT channel while transmission is pending", name);
+        return;
+      }
+#endif
+      const esp_err_t err = rmt_disable(channel);
+      if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot disable %s RMT channel: %s", name, esp_err_to_name(err));
+        return;
+      }
+      enabled = false;
+    }
+    const esp_err_t err = rmt_del_channel(channel);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Cannot remove %s RMT channel: %s", name, esp_err_to_name(err));
+      return;
+    }
     channel = nullptr;
   }
-  if (encoder) {
-    rmt_del_encoder(encoder);
-    encoder = nullptr;
+  if (encoder != nullptr) {
+    const esp_err_t err = rmt_del_encoder(encoder);
+    if (err == ESP_OK)
+      encoder = nullptr;
+    else
+      ESP_LOGE(TAG, "Cannot remove %s RMT encoder: %s", name, esp_err_to_name(err));
   }
 }
 #else

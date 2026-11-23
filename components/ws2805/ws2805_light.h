@@ -102,6 +102,12 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_rmt_no_dma_blocks(uint8_t count) { this->rmt_no_dma_blocks_ = count; }
   void set_use_dma(bool enabled) { this->use_dma_ = enabled; }
   void set_sparse_dimming(bool enabled) { this->sparse_dimming_ = enabled; }
+  void set_correction(float red, float green, float blue, float white = 1.0f) {
+    light::AddressableLight::set_correction(red, green, blue, white);
+    this->sparse_red_scale_ = red;
+    this->sparse_green_scale_ = green;
+    this->sparse_blue_scale_ = blue;
+  }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
     this->offset_g_ = g;
@@ -121,7 +127,7 @@ class WS2805LightOutput : public light::AddressableLight {
   // Bytes clocked out per frame (num_leds × 5 channels).
   uint32_t get_frame_bytes() const { return this->frame_bytes_(); }
   // Detected RMT tick clock (Hz) — the resolution all bit timing is derived from.
-  uint32_t get_rmt_resolution_hz() const { return rmt_resolution_hz_(); }
+  uint32_t get_rmt_resolution_hz() const { return this->rmt_clock_hz_; }
   // Blocking cost of the last frame (encode + RMT transmit + wait), in ms.
   float get_last_frame_ms() const { return this->last_frame_us_ / 1000.0f; }
   // Theoretical ceiling: how many of those frames fit in one second.
@@ -144,20 +150,21 @@ class WS2805LightOutput : public light::AddressableLight {
   static uint32_t rmt_resolution_hz_();
 
   size_t frame_bytes_() const { return static_cast<size_t>(this->num_leds_) * BYTES_PER_LED; }
-  // Worst-case time to clock out one frame: ~50µs/LED plus a fixed 50ms margin.
-  int tx_timeout_ms_() const { return (static_cast<uint32_t>(this->num_leds_) * 50) / 1000 + 50; }
+  // Worst-case time from the rounded bit and reset durations, plus scheduling margin.
+  int tx_timeout_ms_() const { return this->rmt_tx_timeout_ms_; }
 
   // ── setup() helpers (callstack order) ──
   bool allocate_buffers_();
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   bool init_rmt_channel_(int pin, const char *name, bool use_dma, rmt_channel_handle_t &channel,
-                         rmt_encoder_handle_t &encoder);
-  void teardown_rmt_channel_(rmt_channel_handle_t &channel, rmt_encoder_handle_t &encoder);
+                         rmt_encoder_handle_t &encoder, bool &enabled);
+  void teardown_rmt_channel_(const char *name, rmt_channel_handle_t &channel, rmt_encoder_handle_t &encoder,
+                             bool &enabled);
 #else
   bool init_rmt_channel_(int pin, const char *name, rmt_channel_t &channel);
   void teardown_rmt_channel_(rmt_channel_t &channel);
 #endif
-  void calc_timing_();
+  bool calc_timing_();
   void transmit_clear_frame_();
 
   void update_sparse_state_(light::LightColorValues values, float brightness);
@@ -165,6 +172,9 @@ class WS2805LightOutput : public light::AddressableLight {
   void write_whites_(uint8_t cw, uint8_t ww);
   size_t encode_buffer_();
   bool encode_and_transmit_();
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  void recover_synced_fdin_();
+#endif
 
 #if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 11, 0)
   light::ESPColorView get_view_internal(int32_t index) const override {
@@ -205,10 +215,15 @@ class WS2805LightOutput : public light::AddressableLight {
   float warm_white_{0.0f};
   int64_t last_frame_us_{0};  // duration of the last encode+transmit — diagnostic
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
+  uint32_t rmt_clock_hz_{0};
+  int rmt_tx_timeout_ms_{50};
   bool dithering_{false};
   bool constant_brightness_{false};
   bool sparse_dimming_{false};
   uint8_t sparse_step_{1};
+  float sparse_red_scale_{1.0f};
+  float sparse_green_scale_{1.0f};
+  float sparse_blue_scale_{1.0f};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
 
@@ -236,6 +251,8 @@ class WS2805LightOutput : public light::AddressableLight {
   rmt_channel_handle_t fdin_channel_{nullptr};
   rmt_encoder_handle_t fdin_encoder_{nullptr};
   rmt_sync_manager_handle_t sync_manager_{nullptr};
+  bool din_enabled_{false};
+  bool fdin_enabled_{false};
 #else
   rmt_channel_t din_channel_{RMT_CHANNEL_MAX};
   rmt_channel_t fdin_channel_{RMT_CHANNEL_MAX};
