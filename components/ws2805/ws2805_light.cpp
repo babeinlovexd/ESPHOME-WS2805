@@ -105,15 +105,19 @@ bool WS2805LightOutput::allocate_buffers_() {
   }
   memset(this->effect_data_, 0, this->num_leds_);
 
+  size_t rmt_buffer_size = (buffer_size * RMT_SYMBOLS_PER_BYTE + 1) * sizeof(RmtSymbol);
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  this->rmt_buf_ = (uint8_t *)heap_caps_malloc(buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  this->rmt_buf_ = (rmt_symbol_word_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-#else
-  this->rmt_buf_ = (rmt_item32_t *)heap_caps_malloc((buffer_size * 8 + 1) * sizeof(rmt_item32_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!this->rmt_preencode_)
+    rmt_buffer_size = buffer_size;
 #endif
+  this->rmt_buf_ = static_cast<decltype(this->rmt_buf_)>(
+      heap_caps_malloc(rmt_buffer_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   if (this->rmt_buf_ == nullptr) {
-    ESP_LOGE(TAG, "Cannot allocate RMT buffer!");
+    ESP_LOGE(TAG, "Cannot allocate %zu bytes of internal RAM for the RMT transmit buffer", rmt_buffer_size);
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    if (this->rmt_preencode_)
+      ESP_LOGE(TAG, "Try rmt_preencode: false or reduce the number of pixels");
+#endif
     return false;
   }
 
@@ -155,29 +159,29 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   // to white mid-frame. 3 is the highest priority available to a C-level ISR.
   channel_cfg.intr_priority = this->isr_priority_;
 
-  if (rmt_new_tx_channel(&channel_cfg, &channel) != ESP_OK) {
+  esp_err_t err = rmt_new_tx_channel(&channel_cfg, &channel);
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "%s channel creation failed", name);
     return false;
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  rmt_simple_encoder_config_t encoder_cfg;
-  memset(&encoder_cfg, 0, sizeof(encoder_cfg));
-  encoder_cfg.callback = encoder_callback_;
-  encoder_cfg.arg = &this->params_;
-  encoder_cfg.min_chunk_size = RMT_SYMBOLS_PER_BYTE;
-  if (rmt_new_simple_encoder(&encoder_cfg, &encoder) != ESP_OK) {
-    ESP_LOGE(TAG, "%s encoder creation failed", name);
-    return false;
-  }
-#else
-  rmt_copy_encoder_config_t encoder_cfg;
-  memset(&encoder_cfg, 0, sizeof(encoder_cfg));
-  if (rmt_new_copy_encoder(&encoder_cfg, &encoder) != ESP_OK) {
-    ESP_LOGE(TAG, "%s encoder creation failed", name);
-    return false;
-  }
+  if (!this->rmt_preencode_) {
+    rmt_simple_encoder_config_t encoder_cfg{};
+    encoder_cfg.callback = encoder_callback_;
+    encoder_cfg.arg = &this->params_;
+    encoder_cfg.min_chunk_size = RMT_SYMBOLS_PER_BYTE;
+    err = rmt_new_simple_encoder(&encoder_cfg, &encoder);
+  } else
 #endif
+  {
+    rmt_copy_encoder_config_t encoder_cfg{};
+    err = rmt_new_copy_encoder(&encoder_cfg, &encoder);
+  }
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "%s encoder creation failed: %s", name, esp_err_to_name(err));
+    return false;
+  }
 
   if (rmt_enable(channel) != ESP_OK) {
     ESP_LOGE(TAG, "Enabling %s channel failed", name);
@@ -515,43 +519,31 @@ void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_
 }
 
 // Encode buf_ into rmt_buf_. Returns the length to hand to the transmit call:
-//   v5.3+    → byte count        (simple encoder consumes raw bytes)
-//   v5.0-5.2 → symbol byte count (copy encoder consumes pre-expanded symbols)
+//   simple encoder (IDF 5.3+) → raw byte count
+//   copy encoder (IDF 5+)     → encoded symbol byte count
 //   v4.x     → item count        (rmt_write_items)
 size_t WS2805LightOutput::encode_buffer_() {
-  size_t buffer_size = this->frame_bytes_();
+  const size_t buffer_size = this->frame_bytes_();
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-  memcpy(this->rmt_buf_, this->buf_, buffer_size);
-  return buffer_size;
-#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  size_t sym_count = 0;
-  uint8_t *psrc = this->buf_;
-  RmtSymbol *pdest = this->rmt_buf_;
-  for (size_t i = 0; i < buffer_size; i++) {
-    uint8_t b = *psrc++;
-    for (int j = 0; j < 8; j++) {
-      *pdest++ = (b & (1 << (7 - j))) ? this->params_.bit1 : this->params_.bit0;
-      sym_count++;
-    }
+  if (!this->rmt_preencode_) {
+    memcpy(this->rmt_buf_, this->buf_, buffer_size);
+    return buffer_size;
   }
-  *pdest++ = this->params_.reset;
-  sym_count++;
-  return sym_count * sizeof(RmtSymbol);
+#endif
+  RmtSymbol *symbols = reinterpret_cast<RmtSymbol *>(this->rmt_buf_);
+  RmtSymbol *next = symbols;
+  for (size_t i = 0; i < buffer_size; i++) {
+    const uint8_t byte = this->buf_[i];
+    for (uint8_t bit = 0x80; bit != 0; bit >>= 1)
+      *next++ = (byte & bit) ? this->params_.bit1 : this->params_.bit0;
+  }
+  *next++ = this->params_.reset;
+  const size_t symbol_count = next - symbols;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+  return symbol_count * sizeof(RmtSymbol);
 #else
-  size_t len = 0;
-  uint8_t *psrc = this->buf_;
-  RmtSymbol *pdest = this->rmt_buf_;
-  for (size_t i = 0; i < buffer_size; i++) {
-    uint8_t b = *psrc++;
-    for (int j = 0; j < 8; j++) {
-      *pdest++ = (b & (1 << (7 - j))) ? this->params_.bit1 : this->params_.bit0;
-      len++;
-    }
-  }
-  *pdest++ = this->params_.reset;
-  len++;
-  return len;
+  return symbol_count;
 #endif
 }
 
@@ -649,16 +641,11 @@ WS2805LightOutput::~WS2805LightOutput() {
 }
 
 void WS2805LightOutput::cleanup_() {
+  this->setup_complete_ = false;
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)
   this->accessor_ = &light::NullColorAccessor::instance;
   this->color_accessor_.set_buffers(nullptr, nullptr, 0);
 #endif
-  if (this->buf_) heap_caps_free(this->buf_);
-  this->buf_ = nullptr;
-  if (this->effect_data_) heap_caps_free(this->effect_data_);
-  this->effect_data_ = nullptr;
-  if (this->rmt_buf_) heap_caps_free(this->rmt_buf_);
-  this->rmt_buf_ = nullptr;
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
   // The sync manager must be deleted before the channels it manages.
   if (this->sync_manager_ != nullptr) {
@@ -671,18 +658,25 @@ void WS2805LightOutput::cleanup_() {
   this->teardown_rmt_channel_(this->din_channel_);
   this->teardown_rmt_channel_(this->fdin_channel_);
 #endif
+  // Both channels can reference the shared transmit buffer.
+  if (this->rmt_buf_) heap_caps_free(this->rmt_buf_);
+  this->rmt_buf_ = nullptr;
+  if (this->effect_data_) heap_caps_free(this->effect_data_);
+  this->effect_data_ = nullptr;
+  if (this->buf_) heap_caps_free(this->buf_);
+  this->buf_ = nullptr;
 }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 void WS2805LightOutput::teardown_rmt_channel_(rmt_channel_handle_t &channel, rmt_encoder_handle_t &encoder) {
-  if (encoder) {
-    rmt_del_encoder(encoder);
-    encoder = nullptr;
-  }
   if (channel) {
     rmt_disable(channel);
     rmt_del_channel(channel);
     channel = nullptr;
+  }
+  if (encoder) {
+    rmt_del_encoder(encoder);
+    encoder = nullptr;
   }
 }
 #else
