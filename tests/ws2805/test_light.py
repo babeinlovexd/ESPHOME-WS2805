@@ -9,7 +9,8 @@ class MockInvalid(Exception):
     pass
 
 @pytest.fixture(autouse=True)
-def setup_mocks():
+def setup_mocks(monkeypatch):
+    monkeypatch.syspath_prepend("components")
     mock_cg = MagicMock()
     mock_cv = MagicMock()
     mock_light = MagicMock()
@@ -24,7 +25,9 @@ def setup_mocks():
     mock_esp32_const.VARIANT_ESP32S2 = "ESP32-S2"
     mock_esp32_const.VARIANT_ESP32S3 = "ESP32-S3"
     mock_esp32_const.VARIANT_ESP32C3 = "ESP32-C3"
+    mock_esp32_const.VARIANT_ESP32C5 = "ESP32-C5"
     mock_esp32_const.VARIANT_ESP32C6 = "ESP32-C6"
+    mock_esp32_const.VARIANT_ESP32H2 = "ESP32-H2"
 
     # Use a dictionary for sys.modules to simulate the modules
     modules = {
@@ -76,7 +79,6 @@ def test_validate_rmt_usage(setup_mocks, variant, max_instances, expected_error)
     mock_core.CORE.data = {}
 
     # Import inside the test
-    sys.path.append("components")
     import ws2805.light as ws2805_light
 
     # Inject mocks into the module
@@ -94,3 +96,43 @@ def test_validate_rmt_usage(setup_mocks, variant, max_instances, expected_error)
     with pytest.raises(MockInvalid) as excinfo:
         ws2805_light.validate_rmt_usage(config)
     assert expected_error in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "variant, idf_version, outputs, expected_error",
+    [
+        ("ESP32", (5, 5, 6), [(4, True)], None),
+        ("ESP32", (5, 5, 6), [(4, True), (2, False)], "10 RMT blocks"),
+        ("ESP32", (5, 5, 6), [(2, True), (4, False)], None),
+        ("ESP32", (5, 5, 6), [(2, True), (4, True)], "12 RMT blocks"),
+        ("ESP32-S2", (5, 5, 6), [(4, True)], "8 RMT blocks"),
+        ("ESP32-C3", (5, 5, 6), [(4, False)], None),
+        ("ESP32-C3", (5, 5, 6), [(4, False), (2, False)], "6 RMT blocks"),
+        ("ESP32-C6", (5, 5, 6), [(2, False), (4, False)], "6 RMT blocks"),
+        ("ESP32-C6", (5, 5, 6), [(2, True), (2, False)], None),
+        ("ESP32-S3", (5, 5, 6), [(4, True), (4, False)], None),
+        ("ESP32-S2", (4, 4, 8), [(4, True), (4, False)], None),
+    ],
+)
+def test_expert_rmt_block_budget(setup_mocks, variant, idf_version, outputs, expected_error):
+    import ws2805.light as ws2805_light
+
+    ws2805_light.esp32 = setup_mocks["esp32"]
+    ws2805_light.const = setup_mocks["const"]
+    ws2805_light.cv = setup_mocks["cv"]
+    ws2805_light.CORE = setup_mocks["core"].CORE
+    setup_mocks["esp32"].get_esp32_variant.return_value = variant
+    setup_mocks["esp32"].idf_version.return_value = idf_version
+    setup_mocks["cv"].Version.side_effect = lambda *parts: parts
+    setup_mocks["core"].CORE.data = {}
+
+    for index, (blocks, backup) in enumerate(outputs):
+        config = {"rmt_no_dma_blocks": blocks}
+        if backup:
+            config["fdin_pin"] = {ws2805_light.CONF_NUMBER: 23}
+        if expected_error and index == len(outputs) - 1:
+            with pytest.raises(MockInvalid, match=expected_error):
+                ws2805_light.validate_rmt_usage(config)
+            assert setup_mocks["core"].CORE.data.get("ws2805", 0) == index
+        else:
+            assert ws2805_light.validate_rmt_usage(config) == config

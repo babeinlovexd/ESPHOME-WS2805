@@ -1,0 +1,23 @@
+esphome:
+  name: ws2805-esp32c3-expert
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ws2805]
+
+light:
+  - platform: ws2805
+    name: "WS2805 Preencoded with Four Blocks"
+    pin: GPIO4
+    num_leds: 24
+    rmt_preencode: true
+    rmt_no_dma_blocks: 4

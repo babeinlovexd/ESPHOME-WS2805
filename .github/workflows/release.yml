@@ -41,6 +41,10 @@ jobs:
             config: tests/issue59.yaml
           - name: ESP32-S3
             config: tests/test.yaml
+          - name: ESP32 expert options and backup output
+            config: tests/esp32-expert-options.yaml
+          - name: ESP32-C3 combined expert options
+            config: tests/esp32c3-expert-options.yaml
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-python@v7
@@ -77,6 +81,11 @@ jobs:
           -Itests/accessor_mocks -Icomponents/ws2805 \
           tests/ws2805/test_color_accessor.cpp -o "$RUNNER_TEMP/test_color_accessor"
         "$RUNNER_TEMP/test_color_accessor"
+    - name: Check sparse brightness curve and pixel spacing
+      run: |
+        g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+          -Icomponents/ws2805 tests/ws2805/test_sparse_dimming.cpp -o "$RUNNER_TEMP/test_sparse_dimming"
+        "$RUNNER_TEMP/test_sparse_dimming"
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:

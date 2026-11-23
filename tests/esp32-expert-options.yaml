@@ -1,0 +1,31 @@
+esphome:
+  name: ws2805-esp32-expert
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ws2805]
+
+light:
+  - platform: ws2805
+    name: "WS2805 Preencoded"
+    pin: GPIO18
+    fdin_pin: GPIO23
+    num_leds: 24
+    rmt_preencode: true
+    sparse_dimming: true
+    effects:
+      - addressable_rainbow:
+  - platform: ws2805
+    name: "WS2805 Four Blocks"
+    pin: GPIO19
+    num_leds: 36
+    rmt_no_dma_blocks: 4
