@@ -151,11 +151,12 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   channel_cfg.mem_block_symbols = 4 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
 #else
   // No DMA: the frame streams through on-chip RMT memory blocks, refilled by the
-  // ISR mid-frame. Two blocks give headroom so a late refill (WiFi/BLE/web_server
-  // ISR contention) can't underrun the data line — an underrun stalls it high and
-  // downstream WS2805 chips latch 0xFF on every channel = full white.
+  // ISR mid-frame. Four blocks halve the refill count and give a late refill
+  // (WiFi/BLE/web_server ISR contention) twice the slack before it underruns the
+  // line — an underrun stalls it high and downstream WS2805 chips latch 0xFF on
+  // every channel = full white.
   channel_cfg.flags.with_dma = 0;
-  channel_cfg.mem_block_symbols = 2 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
+  channel_cfg.mem_block_symbols = 4 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
 #endif
   // Give the RMT refill ISR high priority so it preempts the WiFi/BLE stack.
   // At priority 0 (low) a busy radio starves the refill and the strip glitches
