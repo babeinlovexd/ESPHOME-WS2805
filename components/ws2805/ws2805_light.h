@@ -228,14 +228,14 @@ class WS2805LightOutput : public light::AddressableLight {
   float suppressed_cw_{0.0f};
   float suppressed_ww_{0.0f};
 
-  // Configurable RMT bit timing (defaults: WS2805 datasheet center values).
+  // Configurable RMT bit timing, including the WS2805 minimum 1.25us bit period.
   // Tick counts are resolution-dependent; the "@80MHz" notes below are just
   // illustrative for the classic ESP32 (resolution is auto-detected per target).
   uint32_t bit0_high_ns_{300};   // spec: 220-380ns → center at 300ns (24 ticks @ 80MHz)
-  uint32_t bit0_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
+  uint32_t bit0_low_ns_{975};    // 78 ticks @ 80MHz; zero-bit period is 1275ns
   uint32_t bit1_high_ns_{800};   // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t bit1_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
-  uint32_t reset_pulse_us_{300}; // spec: ≥280µs (24000 ticks @ 80MHz)
+  uint32_t reset_pulse_us_{300}; // spec: >280µs (24000 ticks @ 80MHz)
   uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
   bool rmt_preencode_{false};
   uint8_t rmt_no_dma_blocks_{2};

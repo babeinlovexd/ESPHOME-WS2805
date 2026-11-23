@@ -96,11 +96,11 @@ CONFIG_SCHEMA = cv.All(
     cv.Optional(CONF_CONSTANT_BRIGHTNESS, default=False): cv.boolean,
     cv.Optional("cct_transition_speed", default="3s"): cv.positive_time_period_milliseconds,
     cv.Optional("dithering", default=False): cv.boolean,
-    # Advanced RMT bit timing — defaults center in the WS2805 datasheet ranges.
+    # Default pulses and total bit durations follow the WS2805 datasheet.
     # The RMT resolution is auto-detected per build target, so no clock divider
     # is exposed here.
     cv.Optional("bit0_high_ns", default=300): cv.positive_int,
-    cv.Optional("bit0_low_ns", default=800): cv.positive_int,
+    cv.Optional("bit0_low_ns", default=975): cv.positive_int,
     cv.Optional("bit1_high_ns", default=800): cv.positive_int,
     cv.Optional("bit1_low_ns", default=800): cv.positive_int,
     cv.Optional("reset_pulse_us", default=300): cv.positive_int,
