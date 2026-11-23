@@ -6,15 +6,13 @@
 
 [Deutsch](README_de.md) · [Configuration reference](docu.md) · [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
 
-External ESPHome component for **WS2805 five-channel RGBCCT LED strips**. RGB effects are addressable; warm and cold white are controlled globally across the strip.
+External ESPHome component for **WS2805 five-channel RGBCCT LED strips**. Each pixel has individual RGB control. Warm white and cold white are set across the strip.
 
 ## Features
 
-- ESPHome addressable RGB effects with global white-channel/CCT control.
-- Manual white-channel mixing during effects, with Home Assistant state synchronization.
-- Configurable channel order, white transitions, temporal dithering and color interlock.
-- Native ESP32 RMT output and optional settings for tuning transmission.
-- Optional sparse dimming for low-level static lighting.
+- ESPHome RGB effects and Home Assistant control of brightness, color and white temperature.
+- Configurable channel order, white-channel mixing and temporal dithering.
+- ESP32 RMT output with optional transmission tuning and sparse dimming.
 
 ## Installation
 
@@ -43,7 +41,7 @@ light:
     channel_order: GRBWWCW
     color_interlock: false
     constant_brightness: false
-    cct_transition_speed: 3s
+    default_transition_length: 1s
     dithering: false
     effects:
       - addressable_rainbow:
@@ -52,42 +50,58 @@ light:
 
 ## ESPHome compatibility
 
-Component version **0.6.8** introduced support for the color-accessor API in **ESPHome 2026.11.0** while retaining the previous interface used by **2026.10.2**. The examples use ESP-IDF. Select a component revision that supports the options you use.
+The component supports **ESPHome 2026.10.2** and **2026.11.0**. The examples use ESP-IDF.
+
+## Home Assistant
+
+Enable `api:` in the device configuration and add the device through the [ESPHome integration](https://www.home-assistant.io/integrations/esphome/). The strip is available as a light in dashboards, scenes and automations.
+
+- Set `default_transition_length` for everyday fades. In a Home Assistant action, set `transition` in seconds to override it for that action, including `0` for an immediate change.
+- With `color_interlock: false`, the light exposes RGBWW and can mix cold white and warm white with static colors or RGB effects.
+- With `color_interlock: true`, the light offers separate RGB and color-temperature modes. Set the warm and cold limits to match your strip.
+- Use `light.addressable_set` for individual RGB pixels in ESPHome automations. Use [light partitions](https://esphome.io/components/light/partition/) to expose RGB segments as separate lights in Home Assistant. For segment control, give the source strip an ID and set `internal: true` and `sparse_dimming: false`. Home Assistant may show white controls inherited from the source on each segment. To set either white channel, send a command to the whole strip.
+
+The optional ESPHome `power_supply` setting can switch the strip's supply. ESPHome's `power_estimation` option is unavailable for WS2805.
 
 ## Configuration
 
 | Option | Default / requirement |
 | :--- | :--- |
-| `pin` | Required data GPIO |
+| `pin` | Data GPIO. Set `pin` or `din_pin`. |
 | `num_leds` | Required number of addressable pixels. Count addressable groups on strips with several LEDs per pixel. |
 | `channel_order` | `GRBWWCW`; also `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
 | `color_interlock` | `false` |
 | `constant_brightness` | `false` |
-| `cold_white_color_temperature` | `153 mireds` |
-| `warm_white_color_temperature` | `500 mireds` |
-| `cct_transition_speed` | `3s` |
+| `cold_white_color_temperature` | `153 mireds` (about 6,536 K) |
+| `warm_white_color_temperature` | `500 mireds` (2,000 K). Use a lower Kelvin value than for cold white. |
+| `default_transition_length` | ESPHome default `1s` for color, brightness and white transitions. |
+| `cct_transition_speed` | Legacy option. An explicit value sets the default transition length when `default_transition_length` is omitted. |
 | `dithering` | `false` |
-| `isr_priority` | `3`, allowed range 1–3 |
-| `din_pin` | Optional override for the data GPIO selected by `pin` |
+| `isr_priority` | `3`. Use `0` to let the RMT driver choose, or set `1`–`3`. |
+| `din_pin` | Primary data GPIO when set. Takes precedence over `pin`. |
 | `fdin_pin` | Optional second data output for strips with a redundant input |
 | `rmt_preencode` | `false`. Prepare the RMT symbols before transmission on ESP-IDF 5.3 and later. |
-| `rmt_no_dma_blocks` | `2`. Choose `2` or `4` memory blocks per output on non-DMA targets using ESP-IDF 5 or later. |
+| `rmt_no_dma_blocks` | `2`. Choose `2` or `4` memory blocks per output that runs without DMA on ESP-IDF 5 or later. |
 | `sparse_dimming` | `false`. Enable spatial dimming at very low brightness. |
 
-`pin` is required even when `din_pin` is supplied. The second data line uses its own RMT channel. Available channels depend on the ESP32 variant, the memory reserved per output and other RMT components on the device.
+DIN and FDIN each use an RMT output. Use GPIOs that support non-inverted, push-pull output on your board. The number of outputs depends on the ESP32 variant, the memory reserved per output and other RMT components on the device.
+
+On ESP32 variants with RMT DMA, the first WS2805 DIN output uses DMA. FDIN and any additional WS2805 DIN outputs use RMT hardware memory. If the optional FDIN output cannot be initialized, the component logs the failure and continues through DIN.
+
+With the default allocations on ESP-IDF 5 or later and no other RMT devices, an ESP32-C3 or ESP32-C6 has room for a single WS2805 DIN output. An ESP32-S3 can use one DMA DIN output and one additional non-DMA output. The additional output can serve another strip or the backup input of the first strip.
 
 ### Transmission tuning
 
 Both options belong inside the `ws2805` light entry and can be tested independently.
 
 - **`rmt_preencode: true`** prepares the full frame before sending it, reducing the work done when the RMT peripheral needs more symbols. On ESP-IDF 5.3 and later, the three data buffers use roughly 11 kB for 1,000 pixels with the default setting or 166 kB with pre-encoding. The transmission buffer needs a contiguous allocation in internal RAM. Older ESP-IDF paths already prepare symbols ahead of transmission.
-- **`rmt_no_dma_blocks: 4`** gives the sender more time to refill between interrupts on a target without RMT DMA. The larger allocation reduces the number of outputs and other RMT channels that fit. DIN and FDIN each need their own blocks. DMA targets and the legacy ESP-IDF 4 driver use their existing allocations.
+- **`rmt_no_dma_blocks: 4`** gives each output running without DMA more symbols between refill interrupts. Each such DIN or FDIN output reserves its own blocks. Larger reservations leave less space for other RMT outputs.
 
-Try one setting at a time if you see short flashes or wrong colors under load. Both settings can reduce the risk of interrupted transmission. The configured bit timings determine the signal speed.
+Try one setting at a time if you see short flashes or wrong colors under load. For setups with other RMT devices, `isr_priority: 0` lets the RMT driver choose or inherit the shared interrupt priority. The configured bit timings determine the signal speed.
 
 ### Sparse dimming
 
-Set `sparse_dimming: true` for a static night light. At the bottom of the brightness range, a subset of the pixels lights up at a reference PWM level of 1 for a fully requested channel. Dimmer channel values in a color mix may round to zero.
+Set `sparse_dimming: true` for a static night light. This setting uses raw PWM values for static colors, so their brightness can look different from normal gamma-corrected output. At the bottom of the range, a subset of the pixels lights up at a reference PWM level of 1 for a fully requested channel. Dimmer channel values in a color mix may round to zero.
 
 The pattern uses a maximum spacing of eight pixels. The number and positions of illuminated pixels can change as you dim. A diffuser can make the pattern less visible. The controller still sends data for every pixel. Sparse dimming is bypassed while a light effect is active.
 

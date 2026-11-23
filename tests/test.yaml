@@ -6,6 +6,24 @@ esp32:
   framework:
     type: esp-idf
 
+wifi:
+  ssid: "WS2805 test network"
+  password: "compile-only-placeholder"
+
+api:
+  actions:
+    - action: set_test_pixels
+      then:
+        - light.addressable_set:
+            id: ws2805_light
+            range_from: 0
+            range_to: 2
+            green: 100%
+
+power_supply:
+  - id: led_power
+    pin: GPIO6
+
 external_components:
   - source:
       type: local
@@ -15,6 +33,23 @@ external_components:
 light:
   - platform: ws2805
     id: ws2805_light
-    name: "WS2805 Test"
+    internal: true
     pin: GPIO4
-    num_leds: 1
+    fdin_pin: GPIO5
+    num_leds: 24
+    power_supply: led_power
+    effects:
+      - pulse:
+      - addressable_rainbow:
+  - platform: partition
+    name: "Test left"
+    segments:
+      - id: ws2805_light
+        from: 0
+        to: 11
+  - platform: partition
+    name: "Test right"
+    segments:
+      - id: ws2805_light
+        from: 12
+        to: 23

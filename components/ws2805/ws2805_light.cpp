@@ -1,5 +1,6 @@
 #include "ws2805_light.h"
 #include "ws2805_sparse_dimming.h"
+#include "esphome/components/light/transformers.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include <algorithm>
@@ -23,7 +24,7 @@ void WS2805LightOutput::setup() {
   if (this->rmt_no_dma_blocks_ == 4)
     ESP_LOGW(TAG, "rmt_no_dma_blocks: 4 requires ESP-IDF 5 or newer");
 #elif SOC_RMT_SUPPORT_DMA
-  if (this->rmt_no_dma_blocks_ == 4)
+  if (this->rmt_no_dma_blocks_ == 4 && this->use_dma_ && this->fdin_pin_ < 0)
     ESP_LOGW(TAG, "rmt_no_dma_blocks: 4 applies only to RMT transmission without DMA");
 #endif
   if (!this->allocate_buffers_()) {
@@ -33,31 +34,24 @@ void WS2805LightOutput::setup() {
   }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->din_channel_, this->din_encoder_)) {
+  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->use_dma_, this->din_channel_, this->din_encoder_)) {
     this->mark_failed();
     this->cleanup_();
     return;
   }
 
-  // FDIN (DIN2) backup channel — driven with the SAME frame as DIN, bit-aligned
-  // via the RMT sync manager, so it feeds the WS2805 breakpoint-resume backup
-  // (BI) input in lock-step with the primary (DI) input.
-  if (this->fdin_pin_ != 0) {
-    if (!this->init_rmt_channel_(this->fdin_pin_, "FDIN", this->fdin_channel_, this->fdin_encoder_)) {
-      this->mark_failed();
-      this->cleanup_();
-      return;
-    }
+  // Reserve the DMA-capable TX channel for DIN. FDIN has its own RMT memory.
+  if (this->fdin_pin_ >= 0 &&
+      !this->init_rmt_channel_(this->fdin_pin_, "FDIN", false, this->fdin_channel_, this->fdin_encoder_)) {
+    this->teardown_rmt_channel_(this->fdin_channel_, this->fdin_encoder_);
+    ESP_LOGW(TAG, "FDIN backup unavailable on GPIO%d. Using DIN only.", this->fdin_pin_);
+  }
 
-    // Bit-align DIN and FDIN via the RMT sync manager where the SoC supports it
-    // (e.g. ESP32-S3). The classic ESP32 has no TX-synchro hardware, so this
-    // returns ESP_ERR_NOT_SUPPORTED — that's fine: we fall back to launching
-    // both channels back-to-back (a few µs of skew, harmless since a WS2805 uses
-    // DI when healthy and only reads BI on DI failure). A backup-line limitation
-    // must NEVER take down the primary DIN output.
+  if (this->fdin_channel_ != nullptr) {
+    // Where available, synchronize both channels carrying the same frame.
+    // Otherwise the transmissions start back-to-back.
     rmt_channel_handle_t sync_channels[] = {this->din_channel_, this->fdin_channel_};
-    rmt_sync_manager_config_t sync_cfg;
-    memset(&sync_cfg, 0, sizeof(sync_cfg));
+    rmt_sync_manager_config_t sync_cfg{};
     sync_cfg.tx_channel_array = sync_channels;
     sync_cfg.array_size = 2;
     esp_err_t sync_err = rmt_new_sync_manager(&sync_cfg, &this->sync_manager_);
@@ -70,7 +64,7 @@ void WS2805LightOutput::setup() {
     }
   }
 #else
-  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->din_channel_, RMT_CHANNEL_MAX)) {
+  if (!this->init_rmt_channel_(this->din_pin_, "DIN", this->din_channel_)) {
     this->mark_failed();
     this->cleanup_();
     return;
@@ -78,13 +72,12 @@ void WS2805LightOutput::setup() {
 
   // FDIN (DIN2) backup channel. The legacy driver has no sync manager, so the
   // two channels are launched back-to-back in encode_and_transmit_ (best effort).
-  if (this->fdin_pin_ != 0) {
-    if (!this->init_rmt_channel_(this->fdin_pin_, "FDIN", this->fdin_channel_, this->din_channel_)) {
-      this->mark_failed();
-      this->cleanup_();
-      return;
+  if (this->fdin_pin_ >= 0) {
+    if (this->init_rmt_channel_(this->fdin_pin_, "FDIN", this->fdin_channel_)) {
+      ESP_LOGCONFIG(TAG, "  FDIN (DIN2) backup on GPIO%d", this->fdin_pin_);
+    } else {
+      ESP_LOGW(TAG, "FDIN backup unavailable on GPIO%d. Using DIN only.", this->fdin_pin_);
     }
-    ESP_LOGCONFIG(TAG, "  FDIN (DIN2) backup on GPIO%d", this->fdin_pin_);
   }
 #endif
 
@@ -137,38 +130,28 @@ bool WS2805LightOutput::allocate_buffers_() {
 }
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_channel_handle_t &channel,
+bool WS2805LightOutput::init_rmt_channel_(int pin, const char *name, bool use_dma, rmt_channel_handle_t &channel,
                                           rmt_encoder_handle_t &encoder) {
-  rmt_tx_channel_config_t channel_cfg;
-  memset(&channel_cfg, 0, sizeof(channel_cfg));
+  rmt_tx_channel_config_t channel_cfg{};
   channel_cfg.clk_src = RMT_CLK_SRC_DEFAULT;
   channel_cfg.resolution_hz = rmt_resolution_hz_();
   channel_cfg.gpio_num = gpio_num_t(pin);
   channel_cfg.trans_queue_depth = 1;
-  channel_cfg.flags.invert_out = 0;
-  // Capability-detect DMA and memory sizing from the SoC caps so every build
-  // target is handled correctly — not just the ones we enumerate by name.
-#if SOC_RMT_SUPPORT_DMA
-  // The DMA path uses its existing dedicated buffer size.
-  channel_cfg.flags.with_dma = 1;
-  channel_cfg.mem_block_symbols = 4 * SOC_RMT_MEM_WORDS_PER_CHANNEL;
-#else
-  // Four blocks extend the refill interval but leave fewer RMT resources
-  // available for other outputs. Each DIN/FDIN channel reserves its own blocks.
-  channel_cfg.flags.with_dma = 0;
-  channel_cfg.mem_block_symbols = this->rmt_no_dma_blocks_ * SOC_RMT_MEM_WORDS_PER_CHANNEL;
+#if !SOC_RMT_SUPPORT_DMA
+  use_dma = false;
 #endif
+  // With DMA this sizes its buffer; without DMA it reserves hardware memory.
+  channel_cfg.flags.with_dma = use_dma;
+  channel_cfg.mem_block_symbols = (use_dma ? 4 : this->rmt_no_dma_blocks_) * SOC_RMT_MEM_WORDS_PER_CHANNEL;
   // Use the configured interrupt priority for timely refills.
   channel_cfg.intr_priority = this->isr_priority_;
 
   esp_err_t err = rmt_new_tx_channel(&channel_cfg, &channel);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "%s RMT channel creation failed (%zu symbols): %s",
-             name, channel_cfg.mem_block_symbols, esp_err_to_name(err));
-#if !SOC_RMT_SUPPORT_DMA
-    if (err == ESP_ERR_NOT_FOUND && this->rmt_no_dma_blocks_ == 4)
+    ESP_LOGE(TAG, "%s RMT channel creation failed (%s, %zu symbols): %s", name,
+             use_dma ? "DMA" : "without DMA", channel_cfg.mem_block_symbols, esp_err_to_name(err));
+    if (!use_dma && err == ESP_ERR_NOT_FOUND && this->rmt_no_dma_blocks_ == 4)
       ESP_LOGE(TAG, "Try rmt_no_dma_blocks: 2 or reduce other RMT usage");
-#endif
     return false;
   }
 
@@ -195,11 +178,20 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
     return false;
   }
 
+  ESP_LOGCONFIG(TAG, "  %s RMT on GPIO%d: %s, %zu symbols", name, pin,
+                use_dma ? "DMA" : "without DMA", channel_cfg.mem_block_symbols);
   return true;
 }
 #else
-bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_channel_t &channel, rmt_channel_t skip) {
-  rmt_config_t rmt_cfg;
+bool WS2805LightOutput::init_rmt_channel_(int pin, const char *name, rmt_channel_t &channel) {
+  rmt_channel_status_result_t channel_status{};
+  esp_err_t err = rmt_get_channel_status(&channel_status);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Cannot check RMT channels for %s: %s", name, esp_err_to_name(err));
+    return false;
+  }
+
+  rmt_config_t rmt_cfg{};
   rmt_cfg.rmt_mode = RMT_MODE_TX;
   rmt_cfg.gpio_num = gpio_num_t(pin);
   rmt_cfg.mem_block_num = 1;
@@ -210,26 +202,18 @@ bool WS2805LightOutput::init_rmt_channel_(uint8_t pin, const char *name, rmt_cha
   // 80MHz APB / 8 = 10MHz resolution, matching rmt_resolution_hz_() for IDF <5.0.
   rmt_cfg.clk_div = 8;
 
-  channel = RMT_CHANNEL_MAX;
   for (int ch = 0; ch < RMT_CHANNEL_MAX; ch++) {
-    if (skip != RMT_CHANNEL_MAX && (rmt_channel_t)ch == skip) continue;  // skip already-used channel
+    if (channel_status.status[ch] != RMT_CHANNEL_UNINIT)
+      continue;
     rmt_cfg.channel = (rmt_channel_t)ch;
-    esp_err_t err = rmt_config(&rmt_cfg);
-    if (err == ESP_OK) {
-      err = rmt_driver_install(rmt_cfg.channel, 0, ESP_INTR_FLAG_LOWMED);
-      if (err == ESP_OK) {
-        channel = (rmt_channel_t)ch;
-        break;
-      }
+    if (rmt_config(&rmt_cfg) == ESP_OK && rmt_driver_install(rmt_cfg.channel, 0, ESP_INTR_FLAG_LOWMED) == ESP_OK) {
+      channel = rmt_cfg.channel;
+      return true;
     }
   }
 
-  if (channel == RMT_CHANNEL_MAX) {
-    ESP_LOGE(TAG, "Failed to find free RMT channel for %s", name);
-    return false;
-  }
-
-  return true;
+  ESP_LOGE(TAG, "Failed to find free RMT channel for %s", name);
+  return false;
 }
 #endif
 
@@ -317,237 +301,130 @@ void WS2805LightOutput::transmit_clear_frame_() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  write_state() — read → transition → dither → fill buffer → transmit
+//  Frame rendering
 // ─────────────────────────────────────────────────────────────────────────────
-void WS2805LightOutput::write_state(light::LightState *state) {
-  if (this->buf_ == nullptr || !this->setup_complete_) return;
-
-  const bool addressable_effect = this->is_effect_active();
-  const bool sparse = this->sparse_dimming_ && !addressable_effect && state->get_current_effect_index() == 0;
-  const auto &requested = state->remote_values;
-  const float brightness = requested.get_brightness();
-  float target_r, target_g, target_b, target_cw, target_ww;
-  if (sparse && requested.is_on() && brightness > 0.0f) {
-    auto unscaled = requested;
-    // Keep the selected mode and channel ratios while replacing global brightness.
-    unscaled.set_brightness(1.0f);
-    this->read_target_values_(unscaled, target_r, target_g, target_b, target_cw, target_ww);
-    const auto plan = make_sparse_dimming_plan(brightness);
-    if (target_r > 0 || target_g > 0 || target_b > 0 || target_cw > 0 || target_ww > 0)
-      this->sparse_step_ = plan.step;
-    target_r = plan.apply_unscaled(target_r);
-    target_g = plan.apply_unscaled(target_g);
-    target_b = plan.apply_unscaled(target_b);
-    target_cw = plan.apply_unscaled(target_cw);
-    target_ww = plan.apply_unscaled(target_ww);
-  } else {
-    this->read_target_values_(requested, target_r, target_g, target_b, target_cw, target_ww);
-    // When switching off, keep the previous mask while the white channels fade.
-    if (!sparse)
-      this->sparse_step_ = 1;
+namespace {
+class WS2805Transition final : public light::LightTransitionTransformer {
+ public:
+  optional<light::LightColorValues> apply() override {
+    // A mode change passes through black, including at the exact midpoint.
+    if (this->changing_color_mode_ && this->get_progress_() == 0.5f)
+      return this->intermediate_values_;
+    return light::LightTransitionTransformer::apply();
   }
+};
+}  // namespace
 
-  if (addressable_effect) {
-    if (this->effect_whites_suppressed_) {
-      if (!this->effect_whites_captured_) {
-        this->suppressed_cw_ = target_cw;
-        this->suppressed_ww_ = target_ww;
-        this->effect_whites_captured_ = true;
+std::unique_ptr<light::LightTransformer> WS2805LightOutput::create_default_transition() {
+  // Keep current_values in step with the rendered frame for all five channels.
+  return make_unique<WS2805Transition>();
+}
 
-        if (target_cw > 0.0f || target_ww > 0.0f) {
-          auto call = state->make_call();
-          call.set_cold_white_if_supported(0.0f);
-          call.set_warm_white_if_supported(0.0f);
-          call.perform();
+void WS2805LightOutput::update_state(light::LightState *state) {
+  if (!this->setup_complete_)
+    return;
 
-          this->suppressed_cw_ = 0.0f;
-          this->suppressed_ww_ = 0.0f;
-        }
-      } else if (std::abs(this->suppressed_cw_ - target_cw) > 0.005f || std::abs(this->suppressed_ww_ - target_ww) > 0.005f) {
-        this->effect_whites_suppressed_ = false;
-      }
+  const auto &values = state->current_values;
+  const float brightness = values.get_state() * values.get_brightness();
+  this->correction_.set_local_brightness(light::to_uint8_scale(brightness));
 
-      if (this->effect_whites_suppressed_) {
-        target_cw = 0.0f;
-        target_ww = 0.0f;
-      }
+  if (this->sparse_dimming_ && !this->is_effect_active() && state->get_current_effect_index() == 0) {
+    this->update_sparse_state_(values, brightness);
+  } else {
+    this->sparse_step_ = 1;
+    state->current_values_as_cwww(&this->cold_white_, &this->warm_white_, this->constant_brightness_);
+    if (!this->is_effect_active()) {
+      const bool rgb_mode = values.get_color_mode() & light::ColorCapability::RGB;
+      this->all() = rgb_mode ? light::color_from_light_color_values(values) : Color{};
     }
-  } else {
-    this->effect_whites_suppressed_ = false;
-    this->effect_whites_captured_ = false;
-    this->suppressed_cw_ = 0.0f;
-    this->suppressed_ww_ = 0.0f;
   }
 
-  // Elapsed time since the previous frame drives the hardware-side white fade.
-  // Clamp to 0.1s so a long idle gap can't produce a single huge step (which
-  // would snap instead of fade) the next time the light changes.
-  int64_t now_us = esp_timer_get_time();
-  float dt = (this->last_show_us_ == 0) ? 0.0f : (now_us - this->last_show_us_) / 1e6f;
-  if (dt > 0.1f) dt = 0.1f;
-  this->last_show_us_ = now_us;
-  this->update_white_transition_(target_cw, target_ww, dt);
+  this->schedule_show();
+}
 
-  bool is_fading = (std::abs(this->current_cw_ - target_cw) > 0.001f ||
-                    std::abs(this->current_ww_ - target_ww) > 0.001f);
+void WS2805LightOutput::update_sparse_state_(light::LightColorValues values, float brightness) {
+  const auto plan = make_sparse_dimming_plan(brightness);
+  this->sparse_step_ = plan.step;
+  values.set_state(true);
+  values.set_brightness(1.0f);
+
+  float red, green, blue, cold_white, warm_white;
+  values.as_rgbww(&red, &green, &blue, &cold_white, &warm_white, this->constant_brightness_);
+  this->cold_white_ = plan.apply_unscaled(cold_white);
+  this->warm_white_ = plan.apply_unscaled(warm_white);
+  const auto r = light::to_uint8_scale(plan.apply_unscaled(red));
+  const auto g = light::to_uint8_scale(plan.apply_unscaled(green));
+  const auto b = light::to_uint8_scale(plan.apply_unscaled(blue));
+  int32_t next_lit = sparse_first_pixel(this->size(), plan.step);
+  for (int32_t i = 0; i < this->size(); ++i) {
+    uint8_t *pixel = this->buf_ + BYTES_PER_LED * i;
+    const bool lit = i == next_lit;
+    pixel[this->offset_r_] = lit ? r : 0;
+    pixel[this->offset_g_] = lit ? g : 0;
+    pixel[this->offset_b_] = lit ? b : 0;
+    if (lit)
+      next_lit += plan.step;
+  }
+}
+
+void WS2805LightOutput::write_state(light::LightState *state) {
+  if (!this->setup_complete_)
+    return;
 
   uint8_t cw, ww;
-  this->compute_white_bytes_(is_fading, cw, ww);
-
-  uint8_t r8 = static_cast<uint8_t>(std::round(target_r * 255.0f));
-  uint8_t g8 = static_cast<uint8_t>(std::round(target_g * 255.0f));
-  uint8_t b8 = static_cast<uint8_t>(std::round(target_b * 255.0f));
-
-  if (addressable_effect) {
-    int n = this->size();
-    for (int i = 0; i < n; i++) {
-      uint8_t *p = this->buf_ + BYTES_PER_LED * i;
-      if (this->color_interlock_ && (ww > 0 || cw > 0)) {
-        p[this->offset_r_] = 0;
-        p[this->offset_g_] = 0;
-        p[this->offset_b_] = 0;
-      }
-      p[this->offset_w1_] = ww;
-      p[this->offset_w2_] = cw;
-    }
+  if (this->dithering_ && state->is_transformer_active()) {
+    cw = this->calculate_dither_(this->cold_white_ * 255.0f, this->error_cw_);
+    ww = this->calculate_dither_(this->warm_white_ * 255.0f, this->error_ww_);
   } else {
-    this->fill_led_buffer_(r8, g8, b8, ww, cw, this->sparse_step_);
-  }
-
-  this->mark_shown_();
-
-  if (!this->encode_and_transmit_()) return;
-
-  this->status_clear_warning();
-
-  if (is_fading) {
-    this->schedule_show();
-  }
-}
-
-void WS2805LightOutput::read_target_values_(const light::LightColorValues &values, float &r, float &g, float &b,
-                                           float &cw, float &ww) {
-  values.as_rgbww(&r, &g, &b, &cw, &ww, this->constant_brightness_);
-
-  // Color interlock: whites and RGB cannot be active simultaneously.
-  // If whites are set (via CWWW, COLOR_TEMP, or our fallback) → kill RGB.
-  // If RGB is set (any non-zero RGB channel or pure RGB mode) → kill whites.
-  // UNKNOWN mode with both at zero → treated as off (both killed).
-  if (this->color_interlock_) {
-    if (cw > 0.0f || ww > 0.0f) {
-      // Whites are active — this is a white/CCT command
-      r = g = b = 0.0f;
-    } else if (r > 0.0f || g > 0.0f || b > 0.0f) {
-      // RGB is active — kill whites and reset fade state
-      cw = 0.0f;
-      ww = 0.0f;
-      this->current_cw_ = 0.0f;
-      this->current_ww_ = 0.0f;
-      this->step_cw_ = 0.0f;
-      this->step_ww_ = 0.0f;
-    }
-    // If both are zero: do nothing (light is off or turning off)
-  }
-}
-
-void WS2805LightOutput::update_white_transition_(float target_cw, float target_ww, float dt) {
-  if (this->target_cw_internal_ != target_cw || this->target_ww_internal_ != target_ww) {
-    this->target_cw_internal_ = target_cw;
-    this->target_ww_internal_ = target_ww;
-
-    ESP_LOGD(TAG, "White Channel Hardware Targets -> CW: %.1f%%, WW: %.1f%%", target_cw * 100.0f, target_ww * 100.0f);
-
-    if (this->transition_speed_ <= 0.0f) {
-      this->current_cw_ = target_cw;
-      this->current_ww_ = target_ww;
-      this->step_cw_ = 0.0f;
-      this->step_ww_ = 0.0f;
-    } else {
-      this->step_cw_ = (target_cw - this->current_cw_) / this->transition_speed_;
-      this->step_ww_ = (target_ww - this->current_ww_) / this->transition_speed_;
-    }
-  }
-
-  this->step_channel_(this->current_cw_, this->target_cw_internal_, this->step_cw_, dt);
-  this->step_channel_(this->current_ww_, this->target_ww_internal_, this->step_ww_, dt);
-}
-
-void WS2805LightOutput::step_channel_(float &current, float target, float step, float dt) {
-  if (current == target) return;
-
-  float move = step * dt;
-  if ((step > 0 && current + move >= target) ||
-      (step < 0 && current + move <= target)) {
-    current = target;
-  } else {
-    current += move;
-  }
-}
-
-void WS2805LightOutput::compute_white_bytes_(bool is_fading, uint8_t &cw, uint8_t &ww) {
-  float base_cw = this->current_cw_ * 255.0f;
-  float base_ww = this->current_ww_ * 255.0f;
-
-  if (this->dithering_ && is_fading) {
-    cw = this->calculate_dither_(base_cw, this->error_cw_);
-    ww = this->calculate_dither_(base_ww, this->error_ww_);
-  } else {
-    cw = static_cast<uint8_t>(std::round(base_cw));
-    ww = static_cast<uint8_t>(std::round(base_ww));
+    cw = light::to_uint8_scale(this->cold_white_);
+    ww = light::to_uint8_scale(this->warm_white_);
     this->error_cw_ = 0.0f;
     this->error_ww_ = 0.0f;
+  }
+
+  // Keep RGB written by effects, partitions and addressable_set intact.
+  if (this->color_interlock_ && (cw != 0 || ww != 0) && this->has_rgb_pixels_())
+    cw = ww = 0;
+  this->write_whites_(cw, ww);
+
+#ifdef USE_POWER_SUPPLY
+  // The inherited RGB accessor cannot report either WS2805 white channel.
+  if (cw != 0 || ww != 0)
+    this->power_.request();
+  else
+    this->mark_shown_();
+#endif
+
+  if (this->encode_and_transmit_())
+    this->status_clear_warning();
+}
+
+bool WS2805LightOutput::has_rgb_pixels_() const {
+  for (int32_t i = 0; i < this->size(); ++i) {
+    const uint8_t *pixel = this->buf_ + BYTES_PER_LED * i;
+    if (pixel[this->offset_r_] || pixel[this->offset_g_] || pixel[this->offset_b_])
+      return true;
+  }
+  return false;
+}
+
+void WS2805LightOutput::write_whites_(uint8_t cw, uint8_t ww) {
+  int32_t next_lit = sparse_first_pixel(this->size(), this->sparse_step_);
+  for (int32_t i = 0; i < this->size(); ++i) {
+    uint8_t *pixel = this->buf_ + BYTES_PER_LED * i;
+    const bool lit = i == next_lit;
+    pixel[this->offset_w1_] = lit ? ww : 0;
+    pixel[this->offset_w2_] = lit ? cw : 0;
+    if (lit)
+      next_lit += this->sparse_step_;
   }
 }
 
 uint8_t WS2805LightOutput::calculate_dither_(float base, float &error) {
-  float desired = base + error;
-  uint8_t val;
-  if (desired >= 255.0f) val = 255;
-  else if (desired <= 0.0f) val = 0;
-  else val = static_cast<uint8_t>(std::round(desired));
-
-  if (base <= 0.0f || base >= 255.0f) error = 0.0f;
-  else error = desired - static_cast<float>(val);
-
-  return val;
-}
-
-// Zero the white (WW/CW) bytes for every LED and reset the CCT fade internals.
-// Called when a buffer-modifying effect starts (via clear_effect_data), so no
-// residual warm/cold white bleeds into the effect. The fade targets are reset
-// to their sentinel (-1) so the next white command recomputes the transition
-// from a known-zero baseline.
-void WS2805LightOutput::clear_white_state_() {
-  if (this->buf_ != nullptr) {
-    int n = this->size();
-    for (int i = 0; i < n; i++) {
-      uint8_t *p = this->buf_ + BYTES_PER_LED * i;
-      p[this->offset_w1_] = 0;
-      p[this->offset_w2_] = 0;
-    }
-  }
-  this->current_cw_ = 0.0f;
-  this->current_ww_ = 0.0f;
-  this->target_cw_internal_ = -1.0f;
-  this->target_ww_internal_ = -1.0f;
-  this->step_cw_ = 0.0f;
-  this->step_ww_ = 0.0f;
-  this->error_cw_ = 0.0f;
-  this->error_ww_ = 0.0f;
-}
-
-void WS2805LightOutput::fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step) {
-  const int32_t n = this->size();
-  if (step > 1)
-    memset(this->buf_, 0, this->frame_bytes_());
-  for (int32_t i = sparse_first_pixel(n, step); i < n; i += step) {
-    uint8_t *p = this->buf_ + BYTES_PER_LED * i;
-    p[this->offset_r_] = r;
-    p[this->offset_g_] = g;
-    p[this->offset_b_] = b;
-    p[this->offset_w1_] = ww;
-    p[this->offset_w2_] = cw;
-  }
+  const float desired = base + error;
+  const auto value = static_cast<uint8_t>(std::round(std::clamp(desired, 0.0f, 255.0f)));
+  error = base <= 0.0f || base >= 255.0f ? 0.0f : desired - value;
+  return value;
 }
 
 // Encode buf_ into rmt_buf_. Returns the length to hand to the transmit call:

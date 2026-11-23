@@ -8,7 +8,7 @@ The `ws2805` platform drives five-channel RGBCCT strips over the ESP32 RMT perip
 
 Set `num_leds` to the number of addressable pixels. Some strips group several physical LEDs into one pixel. Use a data GPIO supported by your board and connect the controller and strip grounds.
 
-Use `pin` to select the primary data GPIO. An optional `din_pin` overrides it, and the configuration still requires `pin`. Use `fdin_pin` if the strip has a redundant data input. DIN and FDIN each reserve an RMT output. Where the hardware and driver provide a synchronization manager, both outputs start together. The number of available outputs depends on the ESP32 variant, allocations and other RMT peripherals.
+Use `pin` or `din_pin` to select the primary data GPIO. If both are set, `din_pin` takes precedence and the unused pin is available to another component. Use `fdin_pin` if the strip has a redundant data input. DIN and FDIN each reserve an RMT output. Where the hardware and driver provide a synchronization manager, both outputs start together. The number of available outputs depends on the ESP32 variant, allocations and other RMT peripherals. If FDIN cannot start, the strip continues to receive data on DIN.
 
 See the [configuration table](README.md#configuration) for option names and defaults.
 
@@ -16,8 +16,8 @@ See the [configuration table](README.md#configuration) for option names and defa
 
 - **Color interlock** switches between the RGB and white channels when `color_interlock: true`. Size the power supply and wiring for the actual load.
 - **Constant brightness** changes how ESPHome mixes cold and warm white. When enabled, the white channels share a combined level based on the larger of their requested levels. When disabled, each white channel follows its requested level scaled by the overall brightness.
-- **Color temperature endpoints** describe the cold and warm LEDs on your strip. Match `cold_white_color_temperature` and `warm_white_color_temperature` to the hardware.
-- **White transition time** defaults to `3s`. Set `cct_transition_speed` to control how quickly the white channels move toward their new values.
+- **Color temperature endpoints** describe the cold and warm LEDs on your strip. Use a higher Kelvin value for cold white than for warm white.
+- **Transition time** follows ESPHome's `default_transition_length` (default `1s`) for RGB and both white channels. Home Assistant actions can override it with `transition` in seconds. An explicit legacy `cct_transition_speed` supplies the default when `default_transition_length` is omitted.
 - **Dithering** is disabled by default. During a white-channel fade, `dithering: true` carries the rounding error into the next frame. For example, a value of 12.5 can alternate between codes 13 and 12. Output at the finished transition target uses ordinary rounding. The visible result depends on the strip and frame rate.
 
 ```yaml
@@ -28,7 +28,7 @@ light:
     num_leds: 60
     cold_white_color_temperature: 153 mireds
     warm_white_color_temperature: 370 mireds
-    cct_transition_speed: 5s
+    default_transition_length: 5s
     dithering: true
     effects:
       - addressable_scan:
@@ -36,13 +36,13 @@ light:
 
 ## Transmission tuning
 
-The [transmission options](README.md#transmission-tuning) adjust the work and memory available for sending data. Test them separately on your hardware if the strip flashes or displays incorrect colors under load. The standard settings are `rmt_preencode: false` and `rmt_no_dma_blocks: 2`. Pre-encoding trades internal RAM for less work during the refill. Additional blocks consume more of the shared non-DMA RMT memory. Leave room for other RMT devices and any FDIN output.
+The [transmission options](README.md#transmission-tuning) adjust the work and memory available for sending data. Test them separately on your hardware if the strip flashes or displays incorrect colors under load. The standard settings are `rmt_preencode: false` and `rmt_no_dma_blocks: 2`. Pre-encoding trades internal RAM for less work during the refill. Additional blocks consume more of the shared non-DMA RMT memory. Leave room for other RMT devices and any FDIN output. If ESPHome reports competing RMT allocations, check `rmt_no_dma_blocks` on WS2805 and the RMT allocation settings of the other component.
 
 ## Sparse dimming
 
 Set `sparse_dimming: true` in a `ws2805` light entry to dim static light below the level produced by lighting the entire strip at the lowest PWM code. At very low brightness, selected pixels light up and the remaining pixels stay dark. With the maximum spacing of eight pixels, three of 24 addressable pixels can light up at the lowest nonzero setting for a fully requested channel. Increasing brightness reduces the spacing and eventually increases the PWM level across the whole strip.
 
-The low-level reference is PWM 1 for a fully requested color or white channel. A weaker contribution can round to zero and change the appearance of a color mix. The illuminated positions can shift as the spacing changes. Sparse dimming is bypassed while a light effect is active. Each transmission still contains data for every pixel.
+Sparse dimming uses raw PWM values for static colors. The low-level reference is PWM 1 for a fully requested color or white channel. A weaker contribution can round to zero and change the appearance of a color mix. The illuminated positions can shift as the spacing changes. Sparse dimming is bypassed while a light effect is active. Each transmission still contains data for every pixel.
 
 ## Advanced timing
 

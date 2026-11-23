@@ -24,7 +24,7 @@ light:
     color_interlock: true # Select RGB or white instead of combining them
     cold_white_color_temperature: 153 mireds
     warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
+    default_transition_length: 3s
     dithering: true
     effects:
       - addressable_rainbow:

@@ -39,12 +39,14 @@ jobs:
         target:
           - name: ESP32
             config: tests/issue59.yaml
-          - name: ESP32-S3
+          - name: ESP32-S3 with backup output and Home Assistant API
             config: tests/test.yaml
           - name: ESP32 expert options and backup output
             config: tests/esp32-expert-options.yaml
           - name: ESP32-C3 combined expert options
             config: tests/esp32c3-expert-options.yaml
+          - name: ESP32-C6
+            config: tests/esp32c6.yaml
     steps:
     - uses: actions/checkout@v7
     - uses: actions/setup-python@v7

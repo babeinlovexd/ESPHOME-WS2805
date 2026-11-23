@@ -6,15 +6,13 @@
 
 [English](README.md) · [Konfigurationsreferenz (Englisch)](docu.md) · [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
 
-Externe ESPHome-Komponente für **WS2805-LED-Streifen mit fünf RGBCCT-Kanälen**. RGB-Effekte sind adressierbar; Warmweiß und Kaltweiß werden global für den ganzen Streifen gesteuert.
+Externe ESPHome-Komponente für **WS2805-LED-Streifen mit fünf RGBCCT-Kanälen**. RGB lässt sich für jedes Pixel einzeln steuern. Warmweiß und Kaltweiß werden für den ganzen Streifen eingestellt.
 
 ## Funktionen
 
-- Adressierbare RGB-Effekte von ESPHome und globale Weißkanal-/CCT-Steuerung.
-- Manuelles Beimischen der Weißkanäle während Effekten mit Synchronisierung der Home-Assistant-Anzeige.
-- Einstellbare Kanalreihenfolge, Weißübergänge, temporales Dithering und Farbverriegelung.
-- Nativer ESP32-RMT-Ausgang mit optionalen Einstellungen für die Signalübertragung.
-- Optionales Sparse-Dimming für sehr schwaches statisches Licht.
+- ESPHome-RGB-Effekte sowie Steuerung von Helligkeit, Farbe und Farbtemperatur in Home Assistant.
+- Einstellbare Kanalreihenfolge, Weißmischung und temporales Dithering.
+- ESP32-RMT-Ausgang mit optionalen Einstellungen für Signalübertragung und Sparse-Dimming.
 
 ## Installation
 
@@ -43,7 +41,7 @@ light:
     channel_order: GRBWWCW
     color_interlock: false
     constant_brightness: false
-    cct_transition_speed: 3s
+    default_transition_length: 1s
     dithering: false
     effects:
       - addressable_rainbow:
@@ -52,42 +50,58 @@ light:
 
 ## ESPHome-Kompatibilität
 
-Komponentenversion **0.6.8** hat die Color-Accessor-API für **ESPHome 2026.11.0** eingeführt und unterstützt weiterhin die bisherige Schnittstelle aus **2026.10.2**. Die Beispiele verwenden ESP-IDF. Wähle einen Komponentenstand, der deine Einstellungen unterstützt.
+Die Komponente unterstützt **ESPHome 2026.10.2** und **2026.11.0**. Die Beispiele verwenden ESP-IDF.
+
+## Home Assistant
+
+Aktiviere `api:` in der Gerätekonfiguration und füge das Gerät über die [ESPHome-Integration](https://www.home-assistant.io/integrations/esphome/) hinzu. Der Streifen steht als Licht für Dashboards, Szenen und Automationen zur Verfügung.
+
+- Mit `default_transition_length` stellst du die Standarddauer für Übergänge ein. Für eine einzelne Aktion kannst du in Home Assistant mit `transition` eine Dauer in Sekunden vorgeben. Mit `0` erfolgt die Änderung sofort.
+- Mit `color_interlock: false` bietet das Licht den Modus RGBWW. Kaltweiß und Warmweiß lassen sich mit festen Farben oder RGB-Effekten mischen.
+- Mit `color_interlock: true` stehen getrennte Modi für RGB und Farbtemperatur zur Verfügung. Passe die beiden Farbtemperaturgrenzen an deinen Streifen an.
+- Mit `light.addressable_set` kannst du in ESPHome-Automationen einzelne RGB-Pixel steuern. Über [Lichtpartitionen](https://esphome.io/components/light/partition/) lassen sich RGB-Segmente als eigene Lichter in Home Assistant steuern. Gib dem ursprünglichen Streifen dazu eine ID und setze `internal: true` und `sparse_dimming: false`. Home Assistant kann geerbte Weißregler für die Segmente anzeigen. Steuere Warmweiß und Kaltweiß über einen Befehl an den gesamten Streifen.
+
+Über die optionale ESPHome-Einstellung `power_supply` lässt sich die Versorgung des Streifens schalten. Die ESPHome-Option `power_estimation` steht für WS2805 nicht zur Verfügung.
 
 ## Konfiguration
 
 | Option | Standard / Voraussetzung |
 | :--- | :--- |
-| `pin` | Erforderlicher Daten-GPIO |
+| `pin` | Daten-GPIO. Gib `pin` oder `din_pin` an. |
 | `num_leds` | Erforderliche Anzahl adressierbarer Pixel. Bei mehreren LEDs pro Pixel zählen die adressierbaren Gruppen. |
 | `channel_order` | `GRBWWCW`; außerdem `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
 | `color_interlock` | `false` |
 | `constant_brightness` | `false` |
-| `cold_white_color_temperature` | `153 mireds` |
-| `warm_white_color_temperature` | `500 mireds` |
-| `cct_transition_speed` | `3s` |
+| `cold_white_color_temperature` | `153 mireds` (etwa 6.536 K) |
+| `warm_white_color_temperature` | `500 mireds` (2.000 K). Wähle einen niedrigeren Kelvin-Wert als für Kaltweiß. |
+| `default_transition_length` | ESPHome-Standard `1s` für Übergänge von Farbe, Helligkeit und Weißkanälen. |
+| `cct_transition_speed` | Bisherige Einstellung. Ein expliziter Wert gibt die Standarddauer vor, wenn `default_transition_length` fehlt. |
 | `dithering` | `false` |
-| `isr_priority` | `3`, zulässiger Bereich 1–3 |
-| `din_pin` | Überschreibt bei Angabe den mit `pin` gewählten Daten-GPIO |
+| `isr_priority` | `3`. Mit `0` wählt der RMT-Treiber die Priorität. Alternativ kannst du `1`–`3` festlegen. |
+| `din_pin` | Primärer Daten-GPIO bei Angabe. Hat Vorrang vor `pin`. |
 | `fdin_pin` | Optionaler zweiter Datenausgang für Streifen mit redundantem Eingang |
 | `rmt_preencode` | `false`. Bereitet die RMT-Symbole ab ESP-IDF 5.3 vor dem Senden vor. |
-| `rmt_no_dma_blocks` | `2`. Wählt `2` oder `4` Speicherblöcke je Ausgang ohne RMT-DMA ab ESP-IDF 5. |
+| `rmt_no_dma_blocks` | `2`. Wählt ab ESP-IDF 5 je Ausgang ohne DMA `2` oder `4` Speicherblöcke. |
 | `sparse_dimming` | `false`. Aktiviert räumliches Dimmen bei sehr niedriger Helligkeit. |
 
-`pin` ist auch bei Angabe von `din_pin` erforderlich. Die zweite Datenleitung beansprucht einen eigenen RMT-Kanal. Die verfügbaren Kanäle hängen von der ESP32-Variante, dem reservierten Speicher je Ausgang und weiteren RMT-Komponenten auf dem Gerät ab.
+DIN und FDIN beanspruchen jeweils einen RMT-Ausgang. Verwende GPIOs, die auf deinem Board als nicht invertierte Push-Pull-Ausgänge nutzbar sind. Die verfügbaren Ausgänge hängen von der ESP32-Variante, dem reservierten Speicher je Ausgang und weiteren RMT-Komponenten auf dem Gerät ab.
+
+Auf ESP32-Varianten mit RMT-DMA nutzt der erste WS2805-DIN-Ausgang DMA. FDIN und weitere WS2805-DIN-Ausgänge verwenden den RMT-Hardwarespeicher. Schlägt die Einrichtung des optionalen FDIN-Ausgangs fehl, protokolliert die Komponente den Fehler und verwendet weiterhin DIN.
+
+Ab ESP-IDF 5 hat ein ESP32-C3 oder ESP32-C6 mit den Standardeinstellungen und ohne weitere RMT-Geräte Platz für einen WS2805-DIN-Ausgang. Ein ESP32-S3 kann einen DIN-Ausgang mit DMA und einen weiteren Ausgang ohne DMA nutzen. Der weitere Ausgang kann einen zweiten Streifen oder den Reserveeingang des ersten Streifens ansteuern.
 
 ### Einstellungen für die Signalübertragung
 
 Beide Optionen gehören in den jeweiligen `ws2805`-Lichteintrag und lassen sich unabhängig testen.
 
 - **`rmt_preencode: true`** bereitet den vollständigen Frame vor dem Senden vor. Dadurch ist weniger Arbeit nötig, wenn der RMT-Sender neue Symbole braucht. Ab ESP-IDF 5.3 belegen die drei Datenpuffer bei 1.000 Pixeln rund 11 kB mit der Standardeinstellung oder 166 kB mit Vorcodierung. Der Sendepuffer benötigt zusammenhängenden internen RAM. Ältere ESP-IDF-Pfade bereiten die Symbole bereits vor dem Senden vor.
-- **`rmt_no_dma_blocks: 4`** gibt dem Sender ohne RMT-DMA mehr Zeit zwischen zwei Nachfüllvorgängen. Durch die größere Reservierung stehen weniger Ausgänge und weitere RMT-Kanäle zur Verfügung. DIN und FDIN benötigen jeweils eigene Blöcke. Varianten mit DMA und der alte Treiber unter ESP-IDF 4 verwenden ihre bisherige Speicherzuteilung.
+- **`rmt_no_dma_blocks: 4`** gibt jedem Ausgang ohne DMA mehr Symbole zwischen zwei Nachfüllvorgängen. Jeder dieser DIN- oder FDIN-Ausgänge reserviert eigene Blöcke. Größere Reservierungen lassen weniger Platz für weitere RMT-Ausgänge.
 
-Teste bei kurzem Aufblitzen oder falschen Farben unter Last jeweils eine Einstellung. Beide können das Risiko von Übertragungsstörungen senken. Die konfigurierten Bitzeiten bestimmen die Signalgeschwindigkeit.
+Teste bei kurzem Aufblitzen oder falschen Farben unter Last jeweils eine Einstellung. Wenn das Gerät weitere RMT-Komponenten nutzt, kann der Treiber mit `isr_priority: 0` die gemeinsame Interrupt-Priorität wählen oder übernehmen. Die konfigurierten Bitzeiten bestimmen die Signalgeschwindigkeit.
 
 ### Sparse-Dimming
 
-Aktiviere `sparse_dimming: true` für ein statisches Nachtlicht. Im untersten Helligkeitsbereich leuchtet nur ein Teil der Pixel. Für einen voll angeforderten Kanal gilt dort die PWM-Referenz 1. Schwächere Kanalanteile in Mischfarben können auf null gerundet werden.
+Aktiviere `sparse_dimming: true` für ein statisches Nachtlicht. Die Einstellung verwendet rohe PWM-Werte für feste Farben. Dadurch kann sich die Helligkeit von der üblichen gammakorrigierten Ausgabe unterscheiden. Im untersten Helligkeitsbereich leuchtet nur ein Teil der Pixel. Für einen voll angeforderten Kanal gilt dort die PWM-Referenz 1. Schwächere Kanalanteile in Mischfarben können auf null gerundet werden.
 
 Der maximale Abstand im Muster beträgt acht Pixel. Beim Dimmen können sich Anzahl und Position der leuchtenden Pixel ändern. Ein Diffusor kann das Muster weniger sichtbar machen. Der Controller sendet weiterhin Daten für alle Pixel. Während eines Lichteffekts greift Sparse-Dimming nicht.
 

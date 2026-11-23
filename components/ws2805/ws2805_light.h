@@ -57,7 +57,9 @@ class WS2805LightOutput : public light::AddressableLight {
   ~WS2805LightOutput();
 
   void setup() override;
+  void update_state(light::LightState *state) override;
   void write_state(light::LightState *state) override;
+  std::unique_ptr<light::LightTransformer> create_default_transition() override;
 
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
@@ -80,13 +82,6 @@ class WS2805LightOutput : public light::AddressableLight {
     if (this->effect_data_) {
       memset(this->effect_data_, 0, this->size());
     }
-    // A buffer-modifying effect is (re)starting and now owns the RGB buffer.
-    // Effects never touch the white (WW/CW) channels — the color view exposes
-    // RGB only. Suppress any residual white and reset the CCT fade state, but
-    // allow the user to mix CW/WW back in while the effect is running.
-    this->effect_whites_suppressed_ = true;
-    this->effect_whites_captured_ = false;
-    this->clear_white_state_();
   }
 
   void set_cold_white_temperature(float cold_white_temperature) {
@@ -96,7 +91,6 @@ class WS2805LightOutput : public light::AddressableLight {
     this->warm_white_temperature_ = warm_white_temperature;
   }
   void set_color_interlock(bool color_interlock) { this->color_interlock_ = color_interlock; }
-  void set_transition_speed(uint32_t speed_ms) { this->transition_speed_ = speed_ms / 1000.0f; }
   void set_dithering(bool dithering) { this->dithering_ = dithering; }
   void set_bit0_high_ns(uint32_t ns) { this->bit0_high_ns_ = ns; }
   void set_bit0_low_ns(uint32_t ns) { this->bit0_low_ns_ = ns; }
@@ -106,6 +100,7 @@ class WS2805LightOutput : public light::AddressableLight {
   void set_isr_priority(uint8_t priority) { this->isr_priority_ = priority; }
   void set_rmt_preencode(bool enabled) { this->rmt_preencode_ = enabled; }
   void set_rmt_no_dma_blocks(uint8_t count) { this->rmt_no_dma_blocks_ = count; }
+  void set_use_dma(bool enabled) { this->use_dma_ = enabled; }
   void set_sparse_dimming(bool enabled) { this->sparse_dimming_ = enabled; }
   void set_channel_order(uint8_t r, uint8_t g, uint8_t b, uint8_t w1, uint8_t w2) {
     this->offset_r_ = r;
@@ -155,23 +150,19 @@ class WS2805LightOutput : public light::AddressableLight {
   // ── setup() helpers (callstack order) ──
   bool allocate_buffers_();
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
-  bool init_rmt_channel_(uint8_t pin, const char *name, rmt_channel_handle_t &channel,
+  bool init_rmt_channel_(int pin, const char *name, bool use_dma, rmt_channel_handle_t &channel,
                          rmt_encoder_handle_t &encoder);
   void teardown_rmt_channel_(rmt_channel_handle_t &channel, rmt_encoder_handle_t &encoder);
 #else
-  bool init_rmt_channel_(uint8_t pin, const char *name, rmt_channel_t &channel, rmt_channel_t skip);
+  bool init_rmt_channel_(int pin, const char *name, rmt_channel_t &channel);
   void teardown_rmt_channel_(rmt_channel_t &channel);
 #endif
   void calc_timing_();
   void transmit_clear_frame_();
 
-  // ── write_state() helpers (callstack order) ──
-  void read_target_values_(const light::LightColorValues &values, float &r, float &g, float &b, float &cw, float &ww);
-  void update_white_transition_(float target_cw, float target_ww, float dt);
-  static void step_channel_(float &current, float target, float step, float dt);
-  void compute_white_bytes_(bool is_fading, uint8_t &cw, uint8_t &ww);
-  void clear_white_state_();
-  void fill_led_buffer_(uint8_t r, uint8_t g, uint8_t b, uint8_t ww, uint8_t cw, uint8_t step);
+  void update_sparse_state_(light::LightColorValues values, float brightness);
+  bool has_rgb_pixels_() const;
+  void write_whites_(uint8_t cw, uint8_t ww);
   size_t encode_buffer_();
   bool encode_and_transmit_();
 
@@ -205,19 +196,13 @@ class WS2805LightOutput : public light::AddressableLight {
   uint8_t offset_w1_{3};
   uint8_t offset_w2_{4};
   uint8_t din_pin_;
-  uint8_t fdin_pin_{0};  // 0 = disabled; else the WS2805 backup (BI) line, driven in sync with DIN
+  int16_t fdin_pin_{-1};  // Negative when the backup line is unconfigured.
   uint8_t *effect_data_{nullptr};
   float cold_white_temperature_{153};
   float warm_white_temperature_{500};
   bool color_interlock_{false};
-  float current_cw_{0.0f};
-  float current_ww_{0.0f};
-  float transition_speed_{3.0f};
-  float target_cw_internal_{-1.0f};
-  float target_ww_internal_{-1.0f};
-  float step_cw_{0.0f};
-  float step_ww_{0.0f};
-  int64_t last_show_us_{0};  // esp_timer_get_time() at previous frame; drives per-frame fade dt
+  float cold_white_{0.0f};
+  float warm_white_{0.0f};
   int64_t last_frame_us_{0};  // duration of the last encode+transmit — diagnostic
   uint32_t tx_error_count_{0};  // cumulative RMT TX timeouts/errors — diagnostic
   bool dithering_{false};
@@ -226,10 +211,6 @@ class WS2805LightOutput : public light::AddressableLight {
   uint8_t sparse_step_{1};
   float error_cw_{0.0f};
   float error_ww_{0.0f};
-  bool effect_whites_suppressed_{false};
-  bool effect_whites_captured_{false};
-  float suppressed_cw_{0.0f};
-  float suppressed_ww_{0.0f};
 
   // Configurable RMT bit timing, including the WS2805 minimum 1.25us bit period.
   // Tick counts are resolution-dependent; the "@80MHz" notes below are just
@@ -239,9 +220,10 @@ class WS2805LightOutput : public light::AddressableLight {
   uint32_t bit1_high_ns_{800};   // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t bit1_low_ns_{800};    // spec: 580ns-1µs → 800ns (64 ticks @ 80MHz)
   uint32_t reset_pulse_us_{300}; // spec: >280µs (24000 ticks @ 80MHz)
-  uint8_t isr_priority_{3};      // RMT TX interrupt priority (1-3)
+  uint8_t isr_priority_{3};      // RMT interrupt priority (0 = automatic, 1-3 = explicit)
   bool rmt_preencode_{false};
   uint8_t rmt_no_dma_blocks_{2};
+  bool use_dma_{true};
 
   uint8_t *buf_{nullptr};
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 11, 0)

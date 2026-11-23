@@ -1,0 +1,21 @@
+esphome:
+  name: ws2805-esp32c6
+
+esp32:
+  board: esp32-c6-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ws2805]
+
+light:
+  - platform: ws2805
+    name: "WS2805 on ESP32-C6"
+    pin: GPIO18
+    num_leds: 24
