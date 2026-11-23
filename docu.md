@@ -1,174 +1,92 @@
-# 💡 WS2805 LED Strip Component Documentation
-<div align="center">
-  <img src="https://img.shields.io/github/v/release/babeinlovexd/ESPHOME-WS2805?style=for-the-badge&color=2ecc71" alt="Latest Release">
-  <img src="https://img.shields.io/badge/Status-Stable-2ecc71?style=for-the-badge" alt="Status">
-  <img src="https://img.shields.io/badge/ESPHome-Ready-03A9F4?style=for-the-badge&logo=esphome" alt="ESPHome">
-  <img src="https://img.shields.io/badge/ESP--IDF-Ready-E7352C?style=for-the-badge&logo=espressif" alt="ESP-IDF Ready">
-  <img src="https://img.shields.io/badge/Arduino-Ready-00979D?style=for-the-badge&logo=arduino" alt="Arduino Ready">
-  <img src="https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey?style=for-the-badge&logo=creative-commons" alt="License: CC BY-NC-SA 4.0">
-</div>
-<br>
+# WS2805 configuration reference
 
-The `ws2805` light platform allows you to use WS2805 5-channel (RGB + Warm White + Cold White) Addressable LED strips with ESPHome.
+[Setup guide](README.md) · [Deutsch](README_de.md)
 
-Since standard ESPHome `AddressableLight` instances support a maximum of 4 channels (RGBW), the WS2805 requires special handling for its 5 channels (40 bits per LED). This component functions identically to an Addressable Light for all RGB-based effects (like `addressable_rainbow`, `addressable_scan`, etc.), but maintains global, non-addressable control over the W1 (Warm White) and W2 (Cold White) channels. This ensures that the Color Temperature (CCT) sliders in Home Assistant work smoothly without skipping or resetting.
+The `ws2805` platform drives five-channel RGBCCT strips over the ESP32 RMT peripheral. Each addressable pixel receives 40 bits: red, green, blue, warm white and cold white. ESPHome effects can control RGB per pixel. The two white channels are set for the entire strip.
 
-## 🔌 Hardware Requirements
-This component utilizes the highly optimized `esp32_rmt_led_strip` architecture. It is exclusively compatible with the ESP32 family of microcontrollers (ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6).
+## Hardware and configuration
 
-**Note:** Depending on your ESP32 variant, there is a hardware limit to how many concurrent WS2805 strips (RMT channels) you can define:
-- **ESP32:** Max 8 channels
-- **ESP32-S2 / ESP32-S3:** Max 4 channels
-- **ESP32-C3 / ESP32-C6:** Max 2 channels
+Set `num_leds` to the number of addressable pixels. Some strips group several physical LEDs into one pixel. Use a data GPIO supported by your board and connect the controller and strip grounds.
 
-## ⚙️ Configuration Variables
+Use `pin` to select the primary data GPIO. An optional `din_pin` overrides it, and the configuration still requires `pin`. Use `fdin_pin` if the strip has a redundant data input. DIN and FDIN each reserve an RMT output. Where the hardware and driver provide a synchronization manager, both outputs start together. The number of available outputs depends on the ESP32 variant, allocations and other RMT peripherals.
+
+See the [configuration table](README.md#configuration) for option names and defaults.
+
+## White control and transitions
+
+- **Color interlock** switches between the RGB and white channels when `color_interlock: true`. Size the power supply and wiring for the actual load.
+- **Constant brightness** changes how ESPHome mixes cold and warm white. When enabled, the white channels share a combined level based on the larger of their requested levels. When disabled, each white channel follows its requested level scaled by the overall brightness.
+- **Color temperature endpoints** describe the cold and warm LEDs on your strip. Match `cold_white_color_temperature` and `warm_white_color_temperature` to the hardware.
+- **White transition time** defaults to `3s`. Set `cct_transition_speed` to control how quickly the white channels move toward their new values.
+- **Dithering** is disabled by default. During a white-channel fade, `dithering: true` carries the rounding error into the next frame. For example, a value of 12.5 can alternate between codes 13 and 12. Output at the finished transition target uses ordinary rounding. The visible result depends on the strip and frame rate.
 
 ```yaml
 light:
   - platform: ws2805
-    id: ws2805_light
-    name: "WS2805 LED Strip"
+    name: "Cove Lighting"
     pin: GPIO4
     num_leds: 60
-    # Optional parameters
-    channel_order: GRBWWCW
-    color_interlock: false
-    constant_brightness: false
     cold_white_color_temperature: 153 mireds
-    warm_white_color_temperature: 500 mireds
-    cct_transition_speed: 3s
-    max_refresh_rate: 4ms
-    dithering: true
-    isr_priority: 3
-    gamma_correct: 2.2
-```
-
-* **pin** (*Required*, [Pin](https://esphome.io/guides/configuration-types.html#config-pin)): The GPIO pin connected to the data line of the WS2805 strip. You can also use **din_pin** as an alias for this option.
-* **fdin_pin** (*Optional*, [Pin](https://esphome.io/guides/configuration-types.html#config-pin)): Backup data line (DIN2 / FDIN) for WS2805 strips that feature a secondary redundant input pad. This output is perfectly hardware-synchronized with the main DIN line (on supported SoCs like ESP32-S3 via ESP-IDF v5) so the backup line is automatically used if the primary line fails.
-* **num_leds** (*Required*, int): The total number of LEDs on the strip. Must be a positive integer > 0.
-* **channel_order** (*Optional*, string): Defines the color channel order for your LED strip. Can be `RGBWWCW`, `RGBCWWW`, `GRBWWCW`, or `GRBCWWW`, `BRGWWCW`, or `BRGCWWW`. Defaults to `GRBWWCW`.
-* **color_interlock** (*Optional*, boolean): If `true`, the RGB channels and White channels cannot be active at the same time. If RGB colors are selected, the white LEDs turn off. If a color temperature is selected, the RGB LEDs turn off. This is highly recommended to protect your power supply and prevent the LEDs from overheating. Defaults to `false`.
-* **constant_brightness** (*Optional*, boolean): Disables the ESPHome internal brightness throttling and behaves like a standard ESPHome RGBWW light (allowing 100% power on all channels). Defaults to `false`.
-* **cold_white_color_temperature** (*Optional*, color temperature): The physical color temperature of the Cold White LEDs in mireds. Defaults to `153 mireds` (~6500K).
-* **warm_white_color_temperature** (*Optional*, color temperature): The physical color temperature of the Warm White LEDs in mireds. Defaults to `500 mireds` (~2000K).
-* **cct_transition_speed** (*Optional*, [Time](https://esphome.io/guides/configuration-types.html#config-time)): Controls the duration of the fading animation when changing the white (CCT) channels. Defaults to `3s`.
-* **max_refresh_rate** (*Optional*, [Time](https://esphome.io/guides/configuration-types.html#config-time)): The minimum time between RMT data transmissions to the strip. Useful for preventing buffer overflows on fast animations. Defaults to `4ms`.
-* **dithering** (*Optional*, boolean): Enables **Temporal Dithering** (Error Diffusion) for the White channels. See the dedicated section below for details. Defaults to `false`.
-* **isr_priority** (*Optional*, int): Specifies the priority (1-3) of the RMT hardware interrupt. Defaults to `3` (highest C-level priority) to prevent the WiFi/BLE stack from starving the RMT refill and causing white flashes on the strip.
-* **gamma_correct** (*Optional*, float): Gamma correction factor (from ESPHome). Defaults to `2.2`.
-
-### ⏱️ Advanced Timing Overrides
-The component uses highly optimized defaults for RMT signal timing that center directly in the WS2805 hardware specifications. However, if you are experiencing issues with custom clone chips, you can manually override the timing using the following properties (in nanoseconds, unless specified):
-* **bit0_high_ns** (*Optional*, int): Default `300`.
-* **bit0_low_ns** (*Optional*, int): Default `800`.
-* **bit1_high_ns** (*Optional*, int): Default `800`.
-* **bit1_low_ns** (*Optional*, int): Default `800`.
-* **reset_pulse_us** (*Optional*, int): Microseconds. Default `300`.
-
-### 📊 Diagnostics API
-If you want to view hardware and memory performance in Home Assistant, you can expose these internal functions via template sensors. Just use the `id` of your light component (e.g., `id(ws2805_light)`):
-* `get_num_leds()`: Number of pixels.
-* `get_frame_bytes()`: Bytes clocked out per frame.
-* `get_rmt_resolution_hz()`: Auto-detected RMT clock tick.
-* `get_last_frame_ms()`: Blocking cost of the last frame in milliseconds.
-* `get_max_refresh_hz()`: Theoretical maximum update rate.
-* `get_tx_error_count()`: Number of RMT buffer drops (should be 0).
-
----
-
-## ⚡ Temporal Dithering (White Channels)
-
-### What is Temporal Dithering?
-When converting 32-bit floating-point brightness calculations (used internally by ESPHome) to 8-bit integers (0-255, required by the LED hardware), fractional data is inherently lost.
-
-For example, if Home Assistant requests a brightness transition, a calculated target at a given millisecond might be `12.4`. The hardware will truncate this to `12`. This loss of `0.4` can cause visible "stepping" or "flickering," especially noticeable during very slow fades or at extremely low brightness levels (where the difference between `1` and `2` is visually drastic).
-
-### How it Works
-When `dithering: true` is set, the component implements **Temporal Error Diffusion** specifically for the CW and WW channels.
-
-1. **Error Accumulation**: Instead of discarding the fractional difference, the component carries this "error" over to the next rendering frame.
-2. **Sub-Pixel Alternation**: If the ideal value is `12.5`, the hardware will output `12` on the first frame (carrying over a `+0.5` error). On the next frame, the `+0.5` is added, resulting in `13`.
-3. **Persistence of Vision**: Because the RMT hardware sends data to the LED strip thousands of times per second, the LED rapidly alternates between `12` and `13`. To the human eye, this blends together perfectly, making the LED appear as if it is outputting exactly `12.5`.
-
-When dithering is active, it temporarily forces continuous ESPHome rendering (`schedule_show()`) to maintain this alternating effect, stopping automatically once absolute targets (0% or 100%) are reached, preventing CPU exhaustion.
-
----
-
-## 📖 Examples
-
-### 1. Basic Kitchen Setup (High Protection)
-In this example, `color_interlock` is active to prevent the user from turning on RGB and White at maximum brightness simultaneously, which could overload the power supply.
-
-```yaml
-light:
-  - platform: ws2805
-    name: "Kitchen Under-Cabinet Lighting"
-    pin: GPIO16
-    num_leds: 150
-    color_interlock: true
-    cold_white_color_temperature: 153 mireds # 6500K
-    warm_white_color_temperature: 370 mireds # 2700K
-    effects:
-      - addressable_rainbow:
-```
-
-### 2. High-Fidelity Living Room Setup (Dithering & Smooth Fades)
-This configuration focuses on maximum visual quality. `dithering` is enabled for buttery-smooth low-light transitions, and the `cct_transition_speed` is bumped up to a slow, cinematic 5 seconds.
-
-```yaml
-light:
-  - platform: ws2805
-    name: "Living Room Cove Lighting"
-    pin: GPIO4
-    num_leds: 300
+    warm_white_color_temperature: 370 mireds
     cct_transition_speed: 5s
     dithering: true
-    color_interlock: false # Allows blending RGB with White
-    max_refresh_rate: 10ms # Slightly relaxed refresh rate for long strips
     effects:
       - addressable_scan:
-      - addressable_twinkle:
 ```
 
-### 3. Multi-Zone Setup (ESP32-S3)
-Using multiple WS2805 strips on the same ESP32. Ensure you stay within your chip's RMT channel limits. Includes backup data line.
+## Transmission tuning
+
+The [transmission options](README.md#transmission-tuning) adjust the work and memory available for sending data. Test them separately on your hardware if the strip flashes or displays incorrect colors under load. The standard settings are `rmt_preencode: false` and `rmt_no_dma_blocks: 2`. Pre-encoding trades internal RAM for less work during the refill. Additional blocks consume more of the shared non-DMA RMT memory. Leave room for other RMT devices and any FDIN output.
+
+## Sparse dimming
+
+Set `sparse_dimming: true` in a `ws2805` light entry to dim static light below the level produced by lighting the entire strip at the lowest PWM code. At very low brightness, selected pixels light up and the remaining pixels stay dark. With the maximum spacing of eight pixels, three of 24 addressable pixels can light up at the lowest nonzero setting for a fully requested channel. Increasing brightness reduces the spacing and eventually increases the PWM level across the whole strip.
+
+The low-level reference is PWM 1 for a fully requested color or white channel. A weaker contribution can round to zero and change the appearance of a color mix. The illuminated positions can shift as the spacing changes. Sparse dimming is bypassed while a light effect is active. Each transmission still contains data for every pixel.
+
+## Advanced timing
+
+The RMT clock rounds each pulse to the nearest hardware tick. Override individual values in the light entry if required by your strip.
+
+| Setting | Default | Meaning |
+| :--- | ---: | :--- |
+| `bit0_high_ns` | 300 ns | High pulse for a zero bit |
+| `bit0_low_ns` | 975 ns | Low pulse for a zero bit |
+| `bit1_high_ns` | 800 ns | High pulse for a one bit |
+| `bit1_low_ns` | 800 ns | Low pulse for a one bit |
+| `reset_pulse_us` | 300 µs | Low pulse between frames |
+
+At their nominal values, a zero bit takes 1,275 ns and a one bit takes 1,600 ns. See the [WS2805 datasheet](https://dl.lightstream.pro/PDF/IC/WS2805_EN.pdf#page=3) for signal limits.
+
+If the strip behaves unexpectedly after an OTA update, switch off power to the controller and the entire strip, including separate power supplies. Power them up again before retesting.
+
+## Diagnostics
+
+Use the light entry's `output_id` when calling component-specific diagnostics from a template sensor.
+
+| Method | Value |
+| :--- | :--- |
+| `get_num_leds()` | Number of addressable pixels |
+| `get_frame_bytes()` | Payload bytes per frame, five per pixel |
+| `get_rmt_resolution_hz()` | RMT timing resolution, in hertz |
+| `get_last_frame_ms()` | Time spent encoding, sending and waiting for the last measured frame, in milliseconds |
+| `get_max_refresh_hz()` | Theoretical refresh rate based on the last measured frame time |
+| `get_tx_error_count()` | Cumulative transmission errors and timeouts tracked by the driver |
 
 ```yaml
-esp32:
-  board: esp32-s3-devkitc-1
-  framework:
-    type: esp-idf
-
 light:
   - platform: ws2805
-    name: "Bookshelf Left"
+    name: "WS2805 Strip"
     pin: GPIO4
-    fdin_pin: GPIO5 # Backup data line
-    num_leds: 50
-    dithering: true
+    num_leds: 60
+    output_id: ws2805_output
 
-  - platform: ws2805
-    name: "Bookshelf Right"
-    pin: GPIO6
-    num_leds: 50
-    dithering: true
+sensor:
+  - platform: template
+    name: "WS2805 Frame Time"
+    unit_of_measurement: "ms"
+    accuracy_decimals: 2
+    update_interval: 10s
+    lambda: |-
+      return id(ws2805_output).get_last_frame_ms();
 ```
-
----
-
-## ☕ Support
-
-If you like this ESPHome component and want to support my work, I'd be absolutely thrilled about a virtual coffee!
-
-<a href="https://www.paypal.me/babeinlovexd">
-  <img src="https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal" alt="Donate with PayPal">
-</a>
-
----
-
-## 👨‍💻 Entwickelt von
-
-| [<img src="https://avatars.githubusercontent.com/u/43302033?v=4" width="100"><br><sub>**Christopher**</sub>](https://github.com/babeinlovexd) |
-| :---: |
-
----

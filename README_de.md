@@ -4,7 +4,7 @@
 
 # ESPHome WS2805
 
-[English](README.md) · [Fragen & Fehler](https://github.com/babeinlovexd/ESPHOME-WS2805/issues) · [Releases](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
+[English](README.md) · [Konfigurationsreferenz (Englisch)](docu.md) · [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
 
 Externe ESPHome-Komponente für **WS2805-LED-Streifen mit fünf RGBCCT-Kanälen**. RGB-Effekte sind adressierbar; Warmweiß und Kaltweiß werden global für den ganzen Streifen gesteuert.
 
@@ -13,11 +13,12 @@ Externe ESPHome-Komponente für **WS2805-LED-Streifen mit fünf RGBCCT-Kanälen*
 - Adressierbare RGB-Effekte von ESPHome und globale Weißkanal-/CCT-Steuerung.
 - Manuelles Beimischen der Weißkanäle während Effekten mit Synchronisierung der Home-Assistant-Anzeige.
 - Einstellbare Kanalreihenfolge, Weißübergänge, temporales Dithering und Farbverriegelung.
-- Eigener nativer ESP32-RMT-Treiber ohne NeoPixelBus-Abhängigkeit.
+- Nativer ESP32-RMT-Ausgang mit optionalen Einstellungen für die Signalübertragung.
+- Optionales Sparse-Dimming für sehr schwaches statisches Licht.
 
 ## Installation
 
-Ergänze deine ESPHome-Gerätekonfiguration um diesen Block. Gerätename, Netzwerk und API werden zusätzlich passend zum Gerät konfiguriert:
+Ergänze deine ESPHome-Gerätekonfiguration um diesen Block. Wähle das passende Board und den Daten-GPIO. Gerätename, Netzwerk und API werden passend zum Gerät konfiguriert.
 
 ```yaml
 esp32:
@@ -35,6 +36,7 @@ external_components:
 light:
   - platform: ws2805
     id: ws2805_light
+    output_id: ws2805_output
     name: "WS2805"
     pin: GPIO4
     num_leds: 60
@@ -50,16 +52,14 @@ light:
 
 ## ESPHome-Kompatibilität
 
-Version **0.6.8** ergänzt die von **ESPHome 2026.11.0** benötigte Color-Accessor-API und erhält die bisherige Schnittstelle für **2026.10.2**. Versionen bis einschließlich 0.6.7 verwenden die alte API und kompilieren mit 2026.11.0 nicht.
-
-Die Build-Matrix kompiliert beide festgelegten ESPHome-Versionen sowie die neueste stabile Version für **ESP32** und **ESP32-S3**. Native Regressionstests prüfen die Fünf-Byte-Pixeladressierung, alle sechs Kanalreihenfolgen, RGB-Korrektur, Effektdaten und die Trennung der beiden globalen Weißkanäle. Siehe [Issue #59](https://github.com/babeinlovexd/ESPHOME-WS2805/issues/59).
+Komponentenversion **0.6.8** hat die Color-Accessor-API für **ESPHome 2026.11.0** eingeführt und unterstützt weiterhin die bisherige Schnittstelle aus **2026.10.2**. Die Beispiele verwenden ESP-IDF. Wähle einen Komponentenstand, der deine Einstellungen unterstützt.
 
 ## Konfiguration
 
 | Option | Standard / Voraussetzung |
 | :--- | :--- |
 | `pin` | Erforderlicher Daten-GPIO |
-| `num_leds` | Erforderliche positive LED-Anzahl |
+| `num_leds` | Erforderliche Anzahl adressierbarer Pixel. Bei mehreren LEDs pro Pixel zählen die adressierbaren Gruppen. |
 | `channel_order` | `GRBWWCW`; außerdem `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
 | `color_interlock` | `false` |
 | `constant_brightness` | `false` |
@@ -68,43 +68,46 @@ Die Build-Matrix kompiliert beide festgelegten ESPHome-Versionen sowie die neues
 | `cct_transition_speed` | `3s` |
 | `dithering` | `false` |
 | `isr_priority` | `3`, zulässiger Bereich 1–3 |
+| `din_pin` | Überschreibt bei Angabe den mit `pin` gewählten Daten-GPIO |
 | `fdin_pin` | Optionaler zweiter Datenausgang für Streifen mit redundantem Eingang |
+| `rmt_preencode` | `false`. Bereitet die RMT-Symbole ab ESP-IDF 5.3 vor dem Senden vor. |
+| `rmt_no_dma_blocks` | `2`. Wählt `2` oder `4` Speicherblöcke je Ausgang ohne RMT-DMA ab ESP-IDF 5. |
+| `sparse_dimming` | `false`. Aktiviert räumliches Dimmen bei sehr niedriger Helligkeit. |
 
-Im aktuellen Schema bleibt `pin` auch bei Angabe von `din_pin` erforderlich; `din_pin` überschreibt dann den verwendeten Daten-GPIO. Für normale Konfigurationen genügt `pin`. Eine zweite Datenleitung ersetzt keine korrekte Spannungsversorgung und Masseverbindung.
+`pin` ist auch bei Angabe von `din_pin` erforderlich. Die zweite Datenleitung beansprucht einen eigenen RMT-Kanal. Die verfügbaren Kanäle hängen von der ESP32-Variante, dem reservierten Speicher je Ausgang und weiteren RMT-Komponenten auf dem Gerät ab.
 
-### Mehrere Streifen
+### Einstellungen für die Signalübertragung
 
-Der Komponenten-Validator erlaubt **8 Instanzen auf ESP32**, **4 auf ESP32-S2/S3** und **2 auf ESP32-C3/C6**. Weitere RMT-Nutzer sowie Chip und Framework können die nutzbaren Ressourcen zusätzlich begrenzen. Jeder Streifen benötigt einen eigenen Daten-GPIO. Acht unabhängige Streifen auf einem S3 sind damit nicht zugesichert.
+Beide Optionen gehören in den jeweiligen `ws2805`-Lichteintrag und lassen sich unabhängig testen.
+
+- **`rmt_preencode: true`** bereitet den vollständigen Frame vor dem Senden vor. Dadurch ist weniger Arbeit nötig, wenn der RMT-Sender neue Symbole braucht. Ab ESP-IDF 5.3 belegen die drei Datenpuffer bei 1.000 Pixeln rund 11 kB mit der Standardeinstellung oder 166 kB mit Vorcodierung. Der Sendepuffer benötigt zusammenhängenden internen RAM. Ältere ESP-IDF-Pfade bereiten die Symbole bereits vor dem Senden vor.
+- **`rmt_no_dma_blocks: 4`** gibt dem Sender ohne RMT-DMA mehr Zeit zwischen zwei Nachfüllvorgängen. Durch die größere Reservierung stehen weniger Ausgänge und weitere RMT-Kanäle zur Verfügung. DIN und FDIN benötigen jeweils eigene Blöcke. Varianten mit DMA und der alte Treiber unter ESP-IDF 4 verwenden ihre bisherige Speicherzuteilung.
+
+Teste bei kurzem Aufblitzen oder falschen Farben unter Last jeweils eine Einstellung. Beide können das Risiko von Übertragungsstörungen senken. Die konfigurierten Bitzeiten bestimmen die Signalgeschwindigkeit.
+
+### Sparse-Dimming
+
+Aktiviere `sparse_dimming: true` für ein statisches Nachtlicht. Im untersten Helligkeitsbereich leuchtet nur ein Teil der Pixel. Für einen voll angeforderten Kanal gilt dort die PWM-Referenz 1. Schwächere Kanalanteile in Mischfarben können auf null gerundet werden.
+
+Der maximale Abstand im Muster beträgt acht Pixel. Beim Dimmen können sich Anzahl und Position der leuchtenden Pixel ändern. Ein Diffusor kann das Muster weniger sichtbar machen. Der Controller sendet weiterhin Daten für alle Pixel. Während eines Lichteffekts greift Sparse-Dimming nicht.
 
 ### Timing & Diagnose
 
-Erweiterte Timing-Standardwerte sind `bit0_high_ns: 300`, `bit0_low_ns: 800`, `bit1_high_ns: 800`, `bit1_low_ns: 800` und `reset_pulse_us: 300`. Diese Werte nur bei abweichenden Anforderungen des LED-Streifens ändern.
+Die Standards sind 300 ns High und 975 ns Low für ein Null-Bit, je 800 ns für High und Low beim Eins-Bit und 300 µs für den Reset. Das Null-Bit dauert nominell 1.275 ns. Die tatsächlichen Pulszeiten werden auf die Auflösung des RMT-Takts gerundet. Bei abweichenden Anforderungen des Streifens lassen sich die [Timing-Werte](docu.md#advanced-timing) in der YAML einstellen.
 
-Template-Sensoren können über die Licht-ID `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` und `get_tx_error_count()` aufrufen. Das sind Diagnosewerte, kein Nachweis einer bestimmten Hardwarekompatibilität.
+Template-Sensoren können über `output_id` Framegröße, RMT-Takt, Framezeit und Übertragungsfehler abfragen. Die Referenz enthält ein [Diagnosebeispiel](docu.md#diagnostics).
 
 ## Beispiele & Fehlersuche
 
-- [example.yaml](example.yaml) enthält ein vollständiges Beispielgerät; [docu.md](docu.md) erklärt Weißübergänge und Dithering.
+- [example.yaml](example.yaml) enthält ein vollständiges Beispielgerät.
 - **Falsche Farben:** `channel_order` mit dem Streifen abgleichen.
 - **Unerwartete Weißkanäle:** Farbverriegelung und manuell eingestellte Weißwerte während Effekten prüfen.
-- **Blitzen oder RMT-Fehler:** Versorgung, gemeinsame Masse, Signalpegel, Streifenlänge, RMT-Belegung und Framework-Buildlog prüfen.
-- **Kompilierfehler nach Updates:** ESPHome-Version, Board, Framework und eine minimale YAML im Issue angeben.
+- **Aufblitzen oder RMT-Fehler:** Versorgung, gemeinsame Masse, Signalpegel, Streifenlänge und die RMT-Meldungen des Geräts prüfen.
+- **Unerwartetes Verhalten nach einem OTA-Update:** Bei anhaltenden Auffälligkeiten Controller und Streifen vollständig stromlos machen. Auch eine getrennte Versorgung des Streifens abschalten. Danach die Versorgung wieder einschalten und erneut testen.
 
 ## Lizenz
 
 [CC BY-NC-SA 4.0](LICENSE). Es gilt die bestehende Projektlizenz. Drittanbieter-Komponenten behalten ihre jeweiligen Lizenzen.
-
----
-
-## Builds und Releases
-
-Version: **0.6.8** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) prüft Pushes und Pull Requests. Ein Tag passend zu `v` + `VERSION` veröffentlicht das Release erst nach erfolgreichen Jobs; manuelle Läufe liefern Build-Artefakte. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
-
-ESPHome-CI verwendet Platzhalter-Zugangsdaten und flasht keine Geräte. Vor dem Einsatz eigene Secrets und Pinbelegung prüfen.
-
-## Mitmachen
-
-Fragen, Fehlerberichte und Beiträge sind willkommen. Nenne Version, Aufbau und Schritte zum Nachstellen im [Issue](https://github.com/babeinlovexd/ESPHOME-WS2805/issues). Größere Änderungen besprechen wir am besten vor einem Pull Request.
 
 Dieses Hobbyprojekt unterstützen: [PayPal](https://www.paypal.me/babeinlovexd).
 

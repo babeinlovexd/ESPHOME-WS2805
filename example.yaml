@@ -21,7 +21,7 @@ light:
     name: "WS2805 LED Strip"
     pin: GPIO4
     num_leds: 60
-    color_interlock: true # Protects power supply by interlocking RGB and White
+    color_interlock: true # Select RGB or white instead of combining them
     cold_white_color_temperature: 153 mireds
     warm_white_color_temperature: 500 mireds
     cct_transition_speed: 3s

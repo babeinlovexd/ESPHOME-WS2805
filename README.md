@@ -4,7 +4,7 @@
 
 # ESPHome WS2805
 
-[Deutsch](README_de.md) · [Issues](https://github.com/babeinlovexd/ESPHOME-WS2805/issues) · [Releases](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
+[Deutsch](README_de.md) · [Configuration reference](docu.md) · [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases)
 
 External ESPHome component for **WS2805 five-channel RGBCCT LED strips**. RGB effects are addressable; warm and cold white are controlled globally across the strip.
 
@@ -13,11 +13,12 @@ External ESPHome component for **WS2805 five-channel RGBCCT LED strips**. RGB ef
 - ESPHome addressable RGB effects with global white-channel/CCT control.
 - Manual white-channel mixing during effects, with Home Assistant state synchronization.
 - Configurable channel order, white transitions, temporal dithering and color interlock.
-- A custom native ESP32 RMT driver; no NeoPixelBus dependency.
+- Native ESP32 RMT output and optional settings for tuning transmission.
+- Optional sparse dimming for low-level static lighting.
 
 ## Installation
 
-Add this to your ESPHome device configuration; also configure the device name, network and API as needed:
+Add this to your ESPHome device configuration. Select the board and data GPIO for your device, and configure its name, network and API as needed.
 
 ```yaml
 esp32:
@@ -35,6 +36,7 @@ external_components:
 light:
   - platform: ws2805
     id: ws2805_light
+    output_id: ws2805_output
     name: "WS2805"
     pin: GPIO4
     num_leds: 60
@@ -50,16 +52,14 @@ light:
 
 ## ESPHome compatibility
 
-Version **0.6.8** adds the color-accessor API required by **ESPHome 2026.11.0** while retaining the previous interface for **2026.10.2**. Versions up to 0.6.7 use the previous API and do not compile with 2026.11.0.
-
-The build matrix compiles both pinned ESPHome versions and the latest stable version for **ESP32** and **ESP32-S3**. Native regression tests cover five-byte pixel addressing, all six channel orders, RGB correction, effect data and isolation of both global white channels. See [Issue #59](https://github.com/babeinlovexd/ESPHOME-WS2805/issues/59).
+Component version **0.6.8** introduced support for the color-accessor API in **ESPHome 2026.11.0** while retaining the previous interface used by **2026.10.2**. The examples use ESP-IDF. Select a component revision that supports the options you use.
 
 ## Configuration
 
 | Option | Default / requirement |
 | :--- | :--- |
 | `pin` | Required data GPIO |
-| `num_leds` | Required positive LED count |
+| `num_leds` | Required number of addressable pixels. Count addressable groups on strips with several LEDs per pixel. |
 | `channel_order` | `GRBWWCW`; also `RGBWWCW`, `RGBCWWW`, `GRBCWWW`, `BRGWWCW`, `BRGCWWW` |
 | `color_interlock` | `false` |
 | `constant_brightness` | `false` |
@@ -68,43 +68,46 @@ The build matrix compiles both pinned ESPHome versions and the latest stable ver
 | `cct_transition_speed` | `3s` |
 | `dithering` | `false` |
 | `isr_priority` | `3`, allowed range 1–3 |
-| `fdin_pin` | Optional backup data output for strips with a redundant input |
+| `din_pin` | Optional override for the data GPIO selected by `pin` |
+| `fdin_pin` | Optional second data output for strips with a redundant input |
+| `rmt_preencode` | `false`. Prepare the RMT symbols before transmission on ESP-IDF 5.3 and later. |
+| `rmt_no_dma_blocks` | `2`. Choose `2` or `4` memory blocks per output on non-DMA targets using ESP-IDF 5 or later. |
+| `sparse_dimming` | `false`. Enable spatial dimming at very low brightness. |
 
-In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
+`pin` is required even when `din_pin` is supplied. The second data line uses its own RMT channel. Available channels depend on the ESP32 variant, the memory reserved per output and other RMT components on the device.
 
-### Multiple strips
+### Transmission tuning
 
-The component's validator permits **8 instances on ESP32**, **4 on ESP32-S2/S3**, and **2 on ESP32-C3/C6**. Other users of RMT and the chosen chip/framework can further constrain the usable resources. Each strip needs its own data GPIO. There is no guarantee of eight independent strips on an S3.
+Both options belong inside the `ws2805` light entry and can be tested independently.
+
+- **`rmt_preencode: true`** prepares the full frame before sending it, reducing the work done when the RMT peripheral needs more symbols. On ESP-IDF 5.3 and later, the three data buffers use roughly 11 kB for 1,000 pixels with the default setting or 166 kB with pre-encoding. The transmission buffer needs a contiguous allocation in internal RAM. Older ESP-IDF paths already prepare symbols ahead of transmission.
+- **`rmt_no_dma_blocks: 4`** gives the sender more time to refill between interrupts on a target without RMT DMA. The larger allocation reduces the number of outputs and other RMT channels that fit. DIN and FDIN each need their own blocks. DMA targets and the legacy ESP-IDF 4 driver use their existing allocations.
+
+Try one setting at a time if you see short flashes or wrong colors under load. Both settings can reduce the risk of interrupted transmission. The configured bit timings determine the signal speed.
+
+### Sparse dimming
+
+Set `sparse_dimming: true` for a static night light. At the bottom of the brightness range, a subset of the pixels lights up at a reference PWM level of 1 for a fully requested channel. Dimmer channel values in a color mix may round to zero.
+
+The pattern uses a maximum spacing of eight pixels. The number and positions of illuminated pixels can change as you dim. A diffuser can make the pattern less visible. The controller still sends data for every pixel. Sparse dimming is bypassed while a light effect is active.
 
 ### Timing & diagnostics
 
-Advanced timing defaults are `bit0_high_ns: 300`, `bit0_low_ns: 800`, `bit1_high_ns: 800`, `bit1_low_ns: 800` and `reset_pulse_us: 300`. Change them only when the strip's timing requirements call for it.
+The defaults are 300 ns high and 975 ns low for a zero bit, 800 ns high and 800 ns low for a one bit, and a reset of 300 µs. The zero bit nominally totals 1,275 ns. Actual pulse widths are rounded to the RMT clock's resolution. For strips that require different timings, use the [timing overrides](docu.md#advanced-timing).
 
-Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolution_hz()`, `get_last_frame_ms()`, `get_max_refresh_hz()` and `get_tx_error_count()` on the light ID. These are diagnostics, not a hardware compatibility certificate.
+Template sensors can read frame size, RMT clock, frame time and transmission errors via `output_id`. See the [diagnostic example](docu.md#diagnostics).
 
 ## Examples & troubleshooting
 
-- [example.yaml](example.yaml) provides a complete example device configuration; [docu.md](docu.md) explains white transitions and dithering.
+- [example.yaml](example.yaml) provides a complete example device configuration.
 - **Wrong colors:** Check `channel_order` against your strip.
 - **White channels behave unexpectedly:** Check color interlock and the manually selected white levels during effects.
-- **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length, RMT allocation and framework build logs.
-- **Compile errors after updating:** Include ESPHome version, board, framework and a minimal YAML example in the issue.
+- **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length and the device's RMT logs.
+- **Unexpected output after an OTA update:** If symptoms persist, switch off power to the controller and the strip, including any separate strip supply. Power them up again before retesting.
 
 ## License
 
 [CC BY-NC-SA 4.0](LICENSE). The existing project license applies; third-party components retain their own licenses.
-
----
-
-## Builds and releases
-
-Version: **0.6.8** ([VERSION](VERSION)). [GitHub Actions](.github/workflows/release.yml) checks each push and pull request. A tag matching `v` + `VERSION` publishes a release after all jobs succeed; manual runs provide build artifacts. [Downloads](https://github.com/babeinlovexd/ESPHOME-WS2805/releases).
-
-ESPHome CI uses dummy credentials and does not flash devices. Configure your own secrets and pin assignments before deployment.
-
-## Contributing
-
-Questions, bug reports and contributions are welcome. Include version, setup and reproduction steps in an [Issue](https://github.com/babeinlovexd/ESPHOME-WS2805/issues). Please discuss larger changes before a pull request.
 
 Support this hobby project: [PayPal](https://www.paypal.me/babeinlovexd).
 
