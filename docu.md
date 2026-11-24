@@ -52,7 +52,7 @@ For the complete current option list, use the [configuration table](README.md#co
 
 `sparse_dimming` also defaults to `false`. When enabled without an active addressable effect, it lowers average brightness by leaving some pixels off in a static, centered pattern. `sparse_max_step` defaults to `8` and accepts 2–32. Short strips provide fewer distinct density levels, and gaps can remain visible.
 
-`sparse_floor_pwm` defaults to `2` and accepts 1–255. It is the reference PWM level for a channel selected at full intensity in the sparse range. Smaller color and white shares remain proportional, so individual channels can fall below that reference or round to zero. Set `sparse_floor_pwm: 1` to request the lowest reference explicitly. Higher values brighten the low end and may reduce uneven illumination on some strips; results depend on the hardware. The setting has no effect while sparse dimming is disabled.
+The sparse range uses a fixed reference of PWM `1` for a channel selected at full intensity. Smaller color and white shares remain proportional and may round to zero. If an existing YAML configuration contains `sparse_floor_pwm`, remove that line before using this component revision.
 
 Sparse dimming does not allocate another large frame buffer. Brightness remapping happens before the white-channel fade and optional temporal dithering. When switching off, the previous sparse pattern remains until the white fade finishes. See the [sparse dimming example](README.md#optional-sparse-dimming).
 

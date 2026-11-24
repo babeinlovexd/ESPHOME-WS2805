@@ -1,4 +1,4 @@
-"""Check real ESPHome YAML acceptance and generated output for existing settings."""
+"""Check the sparse dimming settings through ESPHome's real schema and code generation."""
 from pathlib import Path
 import subprocess
 import sys
@@ -34,22 +34,18 @@ def generate(tmp_path, options):
     return result, build_path / "src/main.cpp"
 
 
-@pytest.mark.parametrize("options, floor", [
-    ({}, 2),
-    ({"sparse_dimming": True}, 2),
-    ({"sparse_dimming": True, "sparse_floor_pwm": 1}, 1),
-    ({"sparse_dimming": True, "sparse_floor_pwm": 2}, 2),
-    ({"sparse_dimming": True, "sparse_floor_pwm": 32}, 32),
-    ({"sparse_dimming": True, "sparse_floor_pwm": 255}, 255),
-    ({"sparse_dimming": False, "sparse_floor_pwm": 2}, 2),
-    ({"sparse_dimming": True, "sparse_floor_pwm": 2,
-      "rmt_preencode": True, "sparse_max_step": 32}, 2),
+@pytest.mark.parametrize("options", [
+    {},
+    {"sparse_dimming": True},
+    {"sparse_dimming": True, "sparse_max_step": 2},
+    {"sparse_dimming": False, "sparse_max_step": 32},
+    {"sparse_dimming": True, "rmt_preencode": True, "sparse_max_step": 32},
 ])
-def test_existing_options_reach_the_driver(tmp_path, options, floor):
+def test_sparse_options_reach_the_driver(tmp_path, options):
     result, generated_path = generate(tmp_path, options)
     assert result.returncode == 0, result.stdout + result.stderr
     generated = generated_path.read_text(encoding="utf-8")
-    assert f"set_sparse_floor_pwm({floor})" in generated
+    assert "set_sparse_floor_pwm" not in generated
     sparse = str(options.get("sparse_dimming", False)).lower()
     simple_encoder = str(not options.get("rmt_preencode", False)).lower()
     assert f"set_sparse_dimming({sparse})" in generated
@@ -57,8 +53,15 @@ def test_existing_options_reach_the_driver(tmp_path, options, floor):
     assert f"set_sparse_max_step({options.get('sparse_max_step', 8)})" in generated
 
 
-@pytest.mark.parametrize("floor", [0, 256])
-def test_out_of_range_floor_is_rejected(tmp_path, floor):
-    result, _ = generate(tmp_path, {"sparse_floor_pwm": floor})
+def test_removed_floor_is_rejected(tmp_path):
+    result, _ = generate(tmp_path, {"sparse_dimming": True, "sparse_floor_pwm": 2})
     assert result.returncode != 0
-    assert "sparse_floor_pwm" in result.stdout + result.stderr
+    message = result.stdout + result.stderr
+    assert "sparse_floor_pwm" in message and "invalid option" in message
+
+
+@pytest.mark.parametrize("max_step", [1, 33])
+def test_out_of_range_spacing_is_rejected(tmp_path, max_step):
+    result, _ = generate(tmp_path, {"sparse_max_step": max_step})
+    assert result.returncode != 0
+    assert "sparse_max_step" in result.stdout + result.stderr

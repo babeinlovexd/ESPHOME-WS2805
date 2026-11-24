@@ -74,7 +74,6 @@ Component versions **0.6.8 and newer** support the color-accessor API used by **
 | `fdin_pin` | Optional backup data output for strips with a redundant input |
 | `sparse_dimming` | `false`; enable spatial dimming for static lighting |
 | `sparse_max_step` | `8`, allowed range 2–32; largest spacing between active LEDs |
-| `sparse_floor_pwm` | `2`, allowed range 1–255; reference PWM level for a full-intensity channel during sparse dimming |
 
 In the current schema, `pin` remains required even when `din_pin` is supplied; `din_pin` overrides the selected data GPIO. Use `pin` in ordinary configurations. A backup data output is not a replacement for correct power and ground wiring.
 
@@ -102,12 +101,11 @@ light:
     num_leds: 60
     sparse_dimming: true
     sparse_max_step: 8
-    sparse_floor_pwm: 1  # Optional: lowest reference; default is 2
 ```
 
 `sparse_max_step` sets the largest spacing between active LEDs. With `8`, the lowest settings light approximately every eighth LED. As brightness rises, more LEDs participate before the output moves into ordinary PWM dimming. The pattern is static and centered on the strip; gaps can remain visible. Full brightness is preserved, and the brightness control still uses 0–100%.
 
-`sparse_floor_pwm` sets the reference PWM level for a channel selected at full intensity in the sparse range. Smaller color and white-channel shares are scaled proportionally and can fall below that level or round to zero. For example, with `constant_brightness: false`, a reference of `2` and warm and cold white each set to 50% produces PWM `1` on each white channel. The default is `2`; the allowed range is 1–255. Set `sparse_floor_pwm: 1` to request the lowest reference explicitly. Higher reference values raise low-level brightness and can reduce uneven illumination on some strips. The result depends on the strip; there is no universal setting that guarantees uniform light. This option has no effect while `sparse_dimming` is `false`.
+In the sparse range, the fixed reference is PWM `1` for a channel selected at full intensity. Smaller color and white-channel shares are scaled proportionally and may round to zero. If an existing YAML configuration contains `sparse_floor_pwm`, remove that line before using this component revision.
 
 This is spatial dimming, so the number of LEDs limits the available steps. Very short strips offer fewer distinct levels, and there is a minimum nonzero brightness rather than unlimited dimming. RGB and both white channels use the selected-pixel pattern; warm and cold white remain global controls rather than independently configurable white segments. Sparse dimming does not allocate another large frame buffer and is independent of `rmt_preencode`.
 
@@ -135,7 +133,7 @@ Template sensors can call `get_num_leds()`, `get_frame_bytes()`, `get_rmt_resolu
 - **Wrong colors:** Check `channel_order` against your strip.
 - **White channels behave unexpectedly:** Check color interlock and the manually selected white levels during effects.
 - **Gaps at very low brightness:** Expected with `sparse_dimming: true`. Reduce `sparse_max_step` for a denser pattern or set `sparse_dimming: false` for ordinary full-strip dimming.
-- **Uneven light at the lowest sparse settings:** If using custom bit timings, compare them with the manufacturer's specification. Try a higher `sparse_floor_pwm`, accepting brighter low-level output. Results depend on the strip.
+- **Uneven light at the lowest sparse settings:** Compare any custom bit timings with the manufacturer's specification. Set `sparse_dimming: false` to return to ordinary full-strip dimming.
 - **Flashes or RMT errors:** Check power supply, common ground, signal levels, strip length, RMT allocation and framework logs.
 - **Flicker or wrong first LEDs:** On classic ESP32, try `rmt_preencode: true` if sufficient internal RAM is available.
 - **Support details:** Include the component and ESPHome versions, board, framework, relevant logs and a minimal YAML example when reporting a problem.
